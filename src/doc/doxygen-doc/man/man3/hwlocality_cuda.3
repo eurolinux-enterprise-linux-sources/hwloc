@@ -1,0 +1,21 @@
+.TH "CUDA Driver API Specific Functions" 3 "Thu Dec 16 2010" "Version 1.1" "Hardware Locality (hwloc)" \" -*- nroff -*-
+.ad l
+.nh
+.SH NAME
+CUDA Driver API Specific Functions \- 
+.SS "Functions"
+
+.in +1c
+.ti -1c
+.RI "static __hwloc_inline int \fBhwloc_cuda_get_device_cpuset\fP (\fBhwloc_topology_t\fP topology __hwloc_attribute_unused, CUdevice cudevice, \fBhwloc_cpuset_t\fP set)"
+.br
+.RI "\fIGet the CPU set of logical processors that are physically close to device \fCcudevice\fP. \fP"
+.in -1c
+.SH "Function Documentation"
+.PP 
+.SS "static __hwloc_inline int hwloc_cuda_get_device_cpuset (\fBhwloc_topology_t\fP topology __hwloc_attribute_unused, CUdevice cudevice, \fBhwloc_cpuset_t\fP set)\fC [static]\fP"
+.PP
+Get the CPU set of logical processors that are physically close to device \fCcudevice\fP. For the given CUDA Driver API device \fCcudevice\fP, read the corresponding kernel-provided cpumap file and return the corresponding CPU set. This function is currently only implemented in a meaningful way for Linux; other systems will simply get a full cpuset. 
+.SH "Author"
+.PP 
+Generated automatically by Doxygen for Hardware Locality (hwloc) from the source code.

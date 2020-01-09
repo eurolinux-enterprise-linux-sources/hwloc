@@ -1,0 +1,39 @@
+.TH "Nodeset Helpers" 3 "Thu Dec 16 2010" "Version 1.1" "Hardware Locality (hwloc)" \" -*- nroff -*-
+.ad l
+.nh
+.SH NAME
+Nodeset Helpers \- 
+.SS "Functions"
+
+.in +1c
+.ti -1c
+.RI "static __hwloc_inline \fBhwloc_const_nodeset_t\fP __hwloc_attribute_pure \fBhwloc_topology_get_complete_nodeset\fP (\fBhwloc_topology_t\fP topology)"
+.br
+.ti -1c
+.RI "static __hwloc_inline \fBhwloc_const_nodeset_t\fP __hwloc_attribute_pure \fBhwloc_topology_get_topology_nodeset\fP (\fBhwloc_topology_t\fP topology)"
+.br
+.ti -1c
+.RI "static __hwloc_inline \fBhwloc_const_nodeset_t\fP __hwloc_attribute_pure \fBhwloc_topology_get_allowed_nodeset\fP (\fBhwloc_topology_t\fP topology)"
+.br
+.RI "\fIGet allowed node set. \fP"
+.in -1c
+.SH "Function Documentation"
+.PP 
+.SS "static __hwloc_inline \fBhwloc_const_nodeset_t\fP __hwloc_attribute_pure hwloc_topology_get_allowed_nodeset (\fBhwloc_topology_t\fP topology)\fC [static]\fP"
+.PP
+Get allowed node set. \fBReturns:\fP
+.RS 4
+the node set of allowed memory of the system. If the topology is the result of a combination of several systems, NULL is returned.
+.RE
+.PP
+\fBNote:\fP
+.RS 4
+The returned nodeset is not newly allocated and should thus not be changed or freed, hwloc_nodeset_dup must be used to obtain a local copy. 
+.RE
+.PP
+
+.SS "static __hwloc_inline \fBhwloc_const_nodeset_t\fP __hwloc_attribute_pure hwloc_topology_get_complete_nodeset (\fBhwloc_topology_t\fP topology)\fC [static]\fP"
+.SS "static __hwloc_inline \fBhwloc_const_nodeset_t\fP __hwloc_attribute_pure hwloc_topology_get_topology_nodeset (\fBhwloc_topology_t\fP topology)\fC [static]\fP"
+.SH "Author"
+.PP 
+Generated automatically by Doxygen for Hardware Locality (hwloc) from the source code.

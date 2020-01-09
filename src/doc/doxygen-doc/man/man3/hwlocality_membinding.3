@@ -1,0 +1,292 @@
+.TH "Memory binding" 3 "Thu Dec 16 2010" "Version 1.1" "Hardware Locality (hwloc)" \" -*- nroff -*-
+.ad l
+.nh
+.SH NAME
+Memory binding \- 
+.SS "Enumerations"
+
+.in +1c
+.ti -1c
+.RI "enum \fBhwloc_membind_policy_t\fP { \fBHWLOC_MEMBIND_DEFAULT\fP, \fBHWLOC_MEMBIND_FIRSTTOUCH\fP, \fBHWLOC_MEMBIND_BIND\fP, \fBHWLOC_MEMBIND_INTERLEAVE\fP, \fBHWLOC_MEMBIND_REPLICATE\fP, \fBHWLOC_MEMBIND_NEXTTOUCH\fP }"
+.br
+.RI "\fIMemory binding policy. \fP"
+.ti -1c
+.RI "enum \fBhwloc_membind_flags_t\fP { \fBHWLOC_MEMBIND_PROCESS\fP, \fBHWLOC_MEMBIND_THREAD\fP, \fBHWLOC_MEMBIND_STRICT\fP, \fBHWLOC_MEMBIND_MIGRATE\fP, \fBHWLOC_MEMBIND_NOCPUBIND\fP }"
+.br
+.RI "\fIMemory binding flags. \fP"
+.in -1c
+.SS "Functions"
+
+.in +1c
+.ti -1c
+.RI "HWLOC_DECLSPEC int \fBhwloc_set_membind_nodeset\fP (\fBhwloc_topology_t\fP topology, \fBhwloc_const_nodeset_t\fP nodeset, \fBhwloc_membind_policy_t\fP policy, int flags)"
+.br
+.RI "\fIBind current process memory on the given nodeset \fCnodeset\fP. \fP"
+.ti -1c
+.RI "HWLOC_DECLSPEC int \fBhwloc_set_membind\fP (\fBhwloc_topology_t\fP topology, \fBhwloc_const_cpuset_t\fP cpuset, \fBhwloc_membind_policy_t\fP policy, int flags)"
+.br
+.RI "\fIBind current process memory on memory nodes near the given cpuset \fCcpuset\fP. \fP"
+.ti -1c
+.RI "HWLOC_DECLSPEC int \fBhwloc_get_membind_nodeset\fP (\fBhwloc_topology_t\fP topology, \fBhwloc_nodeset_t\fP nodeset, \fBhwloc_membind_policy_t\fP *policy, int flags)"
+.br
+.RI "\fIGet current process memory binding in nodeset \fCnodeset\fP. \fP"
+.ti -1c
+.RI "HWLOC_DECLSPEC int \fBhwloc_get_membind\fP (\fBhwloc_topology_t\fP topology, \fBhwloc_cpuset_t\fP cpuset, \fBhwloc_membind_policy_t\fP *policy, int flags)"
+.br
+.RI "\fIGet current process memory binding in cpuset \fCcpuset\fP. \fP"
+.ti -1c
+.RI "HWLOC_DECLSPEC int \fBhwloc_set_proc_membind_nodeset\fP (\fBhwloc_topology_t\fP topology, hwloc_pid_t pid, \fBhwloc_const_nodeset_t\fP nodeset, \fBhwloc_membind_policy_t\fP policy, int flags)"
+.br
+.RI "\fIBind given process memory on the given nodeset \fCnodeset\fP. \fP"
+.ti -1c
+.RI "HWLOC_DECLSPEC int \fBhwloc_set_proc_membind\fP (\fBhwloc_topology_t\fP topology, hwloc_pid_t pid, \fBhwloc_const_cpuset_t\fP cpuset, \fBhwloc_membind_policy_t\fP policy, int flags)"
+.br
+.RI "\fIBind given process memory on memory nodes near the given cpuset \fCcpuset\fP. \fP"
+.ti -1c
+.RI "HWLOC_DECLSPEC int \fBhwloc_get_proc_membind_nodeset\fP (\fBhwloc_topology_t\fP topology, hwloc_pid_t pid, \fBhwloc_nodeset_t\fP nodeset, \fBhwloc_membind_policy_t\fP *policy, int flags)"
+.br
+.RI "\fIGet current process memory binding in nodeset \fCnodeset\fP. \fP"
+.ti -1c
+.RI "HWLOC_DECLSPEC int \fBhwloc_get_proc_membind\fP (\fBhwloc_topology_t\fP topology, hwloc_pid_t pid, \fBhwloc_cpuset_t\fP cpuset, \fBhwloc_membind_policy_t\fP *policy, int flags)"
+.br
+.RI "\fIGet current process memory binding in cpuset \fCcpuset\fP. \fP"
+.ti -1c
+.RI "HWLOC_DECLSPEC int \fBhwloc_set_area_membind_nodeset\fP (\fBhwloc_topology_t\fP topology, const void *addr, size_t len, \fBhwloc_const_nodeset_t\fP nodeset, \fBhwloc_membind_policy_t\fP policy, int flags)"
+.br
+.RI "\fIBind some memory range on the given nodeset \fCnodeset\fP. \fP"
+.ti -1c
+.RI "HWLOC_DECLSPEC int \fBhwloc_set_area_membind\fP (\fBhwloc_topology_t\fP topology, const void *addr, size_t len, \fBhwloc_const_cpuset_t\fP cpuset, \fBhwloc_membind_policy_t\fP policy, int flags)"
+.br
+.RI "\fIBind some memory range on memory nodes near the given cpuset \fCcpuset\fP. \fP"
+.ti -1c
+.RI "HWLOC_DECLSPEC int \fBhwloc_get_area_membind_nodeset\fP (\fBhwloc_topology_t\fP topology, const void *addr, size_t len, \fBhwloc_nodeset_t\fP nodeset, \fBhwloc_membind_policy_t\fP *policy, int flags)"
+.br
+.RI "\fIGet some memory range memory binding in nodeset \fCnodeset\fP. \fP"
+.ti -1c
+.RI "HWLOC_DECLSPEC int \fBhwloc_get_area_membind\fP (\fBhwloc_topology_t\fP topology, const void *addr, size_t len, \fBhwloc_cpuset_t\fP cpuset, \fBhwloc_membind_policy_t\fP *policy, int flags)"
+.br
+.RI "\fIGet some memory range memory binding in cpuset \fCcpuset\fP. \fP"
+.ti -1c
+.RI "HWLOC_DECLSPEC void * \fBhwloc_alloc\fP (\fBhwloc_topology_t\fP topology, size_t len)"
+.br
+.RI "\fIAllocate some memory. \fP"
+.ti -1c
+.RI "HWLOC_DECLSPEC void * \fBhwloc_alloc_membind_nodeset\fP (\fBhwloc_topology_t\fP topology, size_t len, \fBhwloc_const_nodeset_t\fP nodeset, \fBhwloc_membind_policy_t\fP policy, int flags) __hwloc_attribute_malloc"
+.br
+.RI "\fIAllocate some memory on the given nodeset \fCnodeset\fP. \fP"
+.ti -1c
+.RI "HWLOC_DECLSPEC void * \fBhwloc_alloc_membind\fP (\fBhwloc_topology_t\fP topology, size_t len, \fBhwloc_const_cpuset_t\fP cpuset, \fBhwloc_membind_policy_t\fP policy, int flags) __hwloc_attribute_malloc"
+.br
+.RI "\fIAllocate some memory on memory nodes near the given cpuset \fCcpuset\fP. \fP"
+.ti -1c
+.RI "HWLOC_DECLSPEC int \fBhwloc_free\fP (\fBhwloc_topology_t\fP topology, void *addr, size_t len)"
+.br
+.RI "\fIFree some memory allocated by \fBhwloc_alloc()\fP or \fBhwloc_alloc_membind()\fP. \fP"
+.in -1c
+.SH "Detailed Description"
+.PP 
+\fBNote:\fP
+.RS 4
+Not all OSes support all ways to bind existing allocated memory (migration), future memory allocation, explicit memory allocation, etc. and the corresponding binding functions may fail. -1 is returned and errno is set to ENOSYS when it is not possible to bind the requested kind of object processes/threads). errno is set to EXDEV when the requested cpuset can not be enforced (e.g. some systems only allow one NUMA node).
+.RE
+.PP
+The most portable version that should be preferred over the others, whenever possible, is
+.PP
+.PP
+.nf
+ hwloc_alloc_membind_policy(topology, size, set, HWLOC_MEMBIND_DEFAULT, 0),
+.fi
+.PP
+.PP
+which will try to allocate new data bound to the given set, possibly by changing the current memory binding policy, or at worse allocate memory without binding it at all. Since HWLOC_MEMBIND_STRICT is not given, this will even not fail unless a mere malloc() itself would fail, i.e. ENOMEM.
+.PP
+Each binding is available with a CPU set argument or a NUMA memory node set argument. The name of the latter ends with _nodeset. It is also possible to convert between CPU set and node set using \fBhwloc_cpuset_to_nodeset\fP or \fBhwloc_cpuset_from_nodeset\fP.
+.PP
+\fBNote:\fP
+.RS 4
+On some OSes, memory binding may have effects on CPU binding, see \fBHWLOC_MEMBIND_NOCPUBIND\fP 
+.RE
+.PP
+
+.SH "Enumeration Type Documentation"
+.PP 
+.SS "enum \fBhwloc_membind_flags_t\fP"
+.PP
+Memory binding flags. These flags can be used to refine the binding policy.
+.PP
+\fBNote:\fP
+.RS 4
+Not all systems support all kinds of binding. 
+.RE
+.PP
+
+.PP
+\fBEnumerator: \fP
+.in +1c
+.TP
+\fB\fIHWLOC_MEMBIND_PROCESS \fP\fP
+Set policy for all threads of the current (possibly multithreaded) process. 
+.TP
+\fB\fIHWLOC_MEMBIND_THREAD \fP\fP
+Set policy for the current thread of the current process. 
+.TP
+\fB\fIHWLOC_MEMBIND_STRICT \fP\fP
+Request strict binding from the OS. The function will fail if the binding can not be completely enforced. 
+.TP
+\fB\fIHWLOC_MEMBIND_MIGRATE \fP\fP
+Migrate existing allocated memory. If memory can not be migrated and the STRICT flag is passed, an error will be returned. 
+.TP
+\fB\fIHWLOC_MEMBIND_NOCPUBIND \fP\fP
+Avoid any effect on CPU binding. On some OSes, some memory binding function would also bind the application on the corresponding CPUs. It is often not a problem for the application, but if it is, setting this flag will make hwloc avoid using OS functions that would also bind on CPUs. This will however reduce the support of memory bindings, i.e. potentially return ENOSYS in some cases. 
+.SS "enum \fBhwloc_membind_policy_t\fP"
+.PP
+Memory binding policy. These can be used to choose the binding policy.
+.PP
+Note that not all systems support all kinds of binding. 
+.PP
+\fBEnumerator: \fP
+.in +1c
+.TP
+\fB\fIHWLOC_MEMBIND_DEFAULT \fP\fP
+Reset the memory allocation policy to the system default. 
+.TP
+\fB\fIHWLOC_MEMBIND_FIRSTTOUCH \fP\fP
+Allocate memory on the given nodes, but preferably on the node where the first accessor is running. 
+.TP
+\fB\fIHWLOC_MEMBIND_BIND \fP\fP
+Allocate memory on the given nodes. 
+.TP
+\fB\fIHWLOC_MEMBIND_INTERLEAVE \fP\fP
+Allocate memory on the given nodes in a round-robin manner. 
+.TP
+\fB\fIHWLOC_MEMBIND_REPLICATE \fP\fP
+Replicate memory on the given nodes. 
+.TP
+\fB\fIHWLOC_MEMBIND_NEXTTOUCH \fP\fP
+On next touch of existing allocated memory, migrate it to the node where the memory reference happened. 
+.SH "Function Documentation"
+.PP 
+.SS "HWLOC_DECLSPEC void* hwloc_alloc (\fBhwloc_topology_t\fP topology, size_t len)"
+.PP
+Allocate some memory. This is equivalent to malloc(), except it tries to allocated page-aligned memory from the OS.
+.PP
+\fBNote:\fP
+.RS 4
+The allocated memory should be freed with \fBhwloc_free()\fP. 
+.RE
+.PP
+
+.SS "HWLOC_DECLSPEC void* hwloc_alloc_membind (\fBhwloc_topology_t\fP topology, size_t len, \fBhwloc_const_cpuset_t\fP cpuset, \fBhwloc_membind_policy_t\fP policy, int flags)"
+.PP
+Allocate some memory on memory nodes near the given cpuset \fCcpuset\fP. \fBReturns:\fP
+.RS 4
+-1 with errno set to ENOSYS if the action is not supported and HWLOC_MEMBIND_STRICT is given 
+.PP
+-1 with errno set to EXDEV if the binding cannot be enforced and HWLOC_MEMBIND_STRICT is given
+.RE
+.PP
+\fBNote:\fP
+.RS 4
+The allocated memory should be freed with \fBhwloc_free()\fP. 
+.RE
+.PP
+
+.SS "HWLOC_DECLSPEC void* hwloc_alloc_membind_nodeset (\fBhwloc_topology_t\fP topology, size_t len, \fBhwloc_const_nodeset_t\fP nodeset, \fBhwloc_membind_policy_t\fP policy, int flags)"
+.PP
+Allocate some memory on the given nodeset \fCnodeset\fP. \fBReturns:\fP
+.RS 4
+-1 with errno set to ENOSYS if the action is not supported and HWLOC_MEMBIND_STRICT is given 
+.PP
+-1 with errno set to EXDEV if the binding cannot be enforced and HWLOC_MEMBIND_STRICT is given
+.RE
+.PP
+\fBNote:\fP
+.RS 4
+The allocated memory should be freed with \fBhwloc_free()\fP. 
+.RE
+.PP
+
+.SS "HWLOC_DECLSPEC int hwloc_free (\fBhwloc_topology_t\fP topology, void * addr, size_t len)"
+.PP
+Free some memory allocated by \fBhwloc_alloc()\fP or \fBhwloc_alloc_membind()\fP. 
+.SS "HWLOC_DECLSPEC int hwloc_get_area_membind (\fBhwloc_topology_t\fP topology, const void * addr, size_t len, \fBhwloc_cpuset_t\fP cpuset, \fBhwloc_membind_policy_t\fP * policy, int flags)"
+.PP
+Get some memory range memory binding in cpuset \fCcpuset\fP. 
+.SS "HWLOC_DECLSPEC int hwloc_get_area_membind_nodeset (\fBhwloc_topology_t\fP topology, const void * addr, size_t len, \fBhwloc_nodeset_t\fP nodeset, \fBhwloc_membind_policy_t\fP * policy, int flags)"
+.PP
+Get some memory range memory binding in nodeset \fCnodeset\fP. 
+.SS "HWLOC_DECLSPEC int hwloc_get_membind (\fBhwloc_topology_t\fP topology, \fBhwloc_cpuset_t\fP cpuset, \fBhwloc_membind_policy_t\fP * policy, int flags)"
+.PP
+Get current process memory binding in cpuset \fCcpuset\fP. 
+.SS "HWLOC_DECLSPEC int hwloc_get_membind_nodeset (\fBhwloc_topology_t\fP topology, \fBhwloc_nodeset_t\fP nodeset, \fBhwloc_membind_policy_t\fP * policy, int flags)"
+.PP
+Get current process memory binding in nodeset \fCnodeset\fP. 
+.SS "HWLOC_DECLSPEC int hwloc_get_proc_membind (\fBhwloc_topology_t\fP topology, hwloc_pid_t pid, \fBhwloc_cpuset_t\fP cpuset, \fBhwloc_membind_policy_t\fP * policy, int flags)"
+.PP
+Get current process memory binding in cpuset \fCcpuset\fP. 
+.SS "HWLOC_DECLSPEC int hwloc_get_proc_membind_nodeset (\fBhwloc_topology_t\fP topology, hwloc_pid_t pid, \fBhwloc_nodeset_t\fP nodeset, \fBhwloc_membind_policy_t\fP * policy, int flags)"
+.PP
+Get current process memory binding in nodeset \fCnodeset\fP. 
+.SS "HWLOC_DECLSPEC int hwloc_set_area_membind (\fBhwloc_topology_t\fP topology, const void * addr, size_t len, \fBhwloc_const_cpuset_t\fP cpuset, \fBhwloc_membind_policy_t\fP policy, int flags)"
+.PP
+Bind some memory range on memory nodes near the given cpuset \fCcpuset\fP. \fBReturns:\fP
+.RS 4
+-1 with errno set to ENOSYS if the action is not supported 
+.PP
+-1 with errno set to EXDEV if the binding cannot be enforced 
+.RE
+.PP
+
+.SS "HWLOC_DECLSPEC int hwloc_set_area_membind_nodeset (\fBhwloc_topology_t\fP topology, const void * addr, size_t len, \fBhwloc_const_nodeset_t\fP nodeset, \fBhwloc_membind_policy_t\fP policy, int flags)"
+.PP
+Bind some memory range on the given nodeset \fCnodeset\fP. \fBReturns:\fP
+.RS 4
+-1 with errno set to ENOSYS if the action is not supported 
+.PP
+-1 with errno set to EXDEV if the binding cannot be enforced 
+.RE
+.PP
+
+.SS "HWLOC_DECLSPEC int hwloc_set_membind (\fBhwloc_topology_t\fP topology, \fBhwloc_const_cpuset_t\fP cpuset, \fBhwloc_membind_policy_t\fP policy, int flags)"
+.PP
+Bind current process memory on memory nodes near the given cpuset \fCcpuset\fP. \fBReturns:\fP
+.RS 4
+-1 with errno set to ENOSYS if the action is not supported 
+.PP
+-1 with errno set to EXDEV if the binding cannot be enforced 
+.RE
+.PP
+
+.SS "HWLOC_DECLSPEC int hwloc_set_membind_nodeset (\fBhwloc_topology_t\fP topology, \fBhwloc_const_nodeset_t\fP nodeset, \fBhwloc_membind_policy_t\fP policy, int flags)"
+.PP
+Bind current process memory on the given nodeset \fCnodeset\fP. \fBReturns:\fP
+.RS 4
+-1 with errno set to ENOSYS if the action is not supported 
+.PP
+-1 with errno set to EXDEV if the binding cannot be enforced 
+.RE
+.PP
+
+.SS "HWLOC_DECLSPEC int hwloc_set_proc_membind (\fBhwloc_topology_t\fP topology, hwloc_pid_t pid, \fBhwloc_const_cpuset_t\fP cpuset, \fBhwloc_membind_policy_t\fP policy, int flags)"
+.PP
+Bind given process memory on memory nodes near the given cpuset \fCcpuset\fP. \fBReturns:\fP
+.RS 4
+-1 with errno set to ENOSYS if the action is not supported 
+.PP
+-1 with errno set to EXDEV if the binding cannot be enforced 
+.RE
+.PP
+
+.SS "HWLOC_DECLSPEC int hwloc_set_proc_membind_nodeset (\fBhwloc_topology_t\fP topology, hwloc_pid_t pid, \fBhwloc_const_nodeset_t\fP nodeset, \fBhwloc_membind_policy_t\fP policy, int flags)"
+.PP
+Bind given process memory on the given nodeset \fCnodeset\fP. \fBReturns:\fP
+.RS 4
+-1 with errno set to ENOSYS if the action is not supported 
+.PP
+-1 with errno set to EXDEV if the binding cannot be enforced 
+.RE
+.PP
+
+.SH "Author"
+.PP 
+Generated automatically by Doxygen for Hardware Locality (hwloc) from the source code.
