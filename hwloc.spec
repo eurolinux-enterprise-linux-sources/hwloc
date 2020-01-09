@@ -1,11 +1,12 @@
 Summary:   Portable Hardware Locality - portable abstraction of hierarchical architectures
 Name:      hwloc
 Version:   1.5
-Release:   1%{?dist}
+Release:   2%{?dist}
 License:   BSD
 Group:     Applications/System
 URL:       http://www.open-mpi.org/projects/hwloc/
 Source0:   http://www.open-mpi.org/software/hwloc/v1.5/downloads/%{name}-%{version}.tar.bz2
+Source1:   http://www.open-mpi.org/software/hwloc/v1.1/downloads/%{name}-1.1.tar.bz2
 
 BuildRequires: libX11-devel libxml2-devel cairo-devel ncurses-devel pciutils-devel transfig doxygen w3m
 %ifnarch s390 s390x
@@ -39,28 +40,42 @@ Requires:  %{name} = %{version}-%{release}
 Headers and shared object symbolic links for the hwloc.
 
 %prep
-%setup -q
+%setup -q -c
+%setup -q -T -D -a 1
 
 
 %build
 
+cd %{name}-%{version}
 %configure
 %{__make} %{?_smp_mflags} V=1
+cd ../hwloc-1.1
+%configure
+%{__make} %{?_smp_mflags} V=1
+cd ..
 
 %install
+cd %{name}-%{version}
 %{__make} install DESTDIR=%{buildroot} INSTALL="%{__install} -p"
 
 #Fix wrong permition on file hwloc-assembler-remote => I have reported this to upstream already
 %{__chmod} 0755 %{buildroot}%{_bindir}/hwloc-assembler-remote
-
-# We don't ship .la files.
-%{__rm} -rf %{buildroot}%{_libdir}/libhwloc.la
+# Include symlink to old so name for backward compatability.
+ln -s %{_libdir}/libhwloc.so.5.1.0 %{buildroot}%{_libdir}/libhwloc.so.1
 
 %{__mv} %{buildroot}%{_defaultdocdir}/%{name} %{buildroot}%{_defaultdocdir}/%{name}-%{version}
 %{__cp} -p AUTHORS COPYING NEWS README VERSION %{buildroot}%{_defaultdocdir}/%{name}-%{version}
 %{__cp} -p doc/hwloc-hello.c %{buildroot}%{_defaultdocdir}/%{name}-%{version}
 
+cd ../hwloc-1.1/src
+%{__make} install-libLTLIBRARIES DESTDIR=%{buildroot} INSTALL="%{__install} -p"
+cd ../..
+
+# We don't ship .la files.
+%{__rm} -rf %{buildroot}%{_libdir}/libhwloc.la
+
 %check
+cd %{name}-%{version}
 %{__make} check
 
 %post -p /sbin/ldconfig
@@ -94,6 +109,11 @@ Headers and shared object symbolic links for the hwloc.
 
 
 %changelog
+* Fri Jul 18 2014 Jay Fenlason <fenlason@redhat.com> - 1.5-2
+- Build the 1.1 version as well, so we have the old library for backward
+  compatability.
+  Resolves: rhbz1070347
+
 * Wed Aug 15 2012 Jirka Hladky  <hladky.jiri@gmail.com> - 1.5-1
 - Update to version 1.5
 
