@@ -1,12 +1,12 @@
 /*
  * Copyright © 2009 CNRS
- * Copyright © 2009-2010 INRIA
- * Copyright © 2009-2010 Université Bordeaux 1
- * Copyright © 2009-2010 Cisco Systems, Inc.  All rights reserved.
+ * Copyright © 2009-2010 inria.  All rights reserved.
+ * Copyright © 2009-2012 Université Bordeaux 1
+ * Copyright © 2009-2011 Cisco Systems, Inc.  All rights reserved.
  * See COPYING in top-level directory.
  */
 
-#include <private/config.h>
+#include <private/autogen/config.h>
 #include <hwloc.h>
 
 #include <stdlib.h>
@@ -27,11 +27,16 @@
 #endif /* HAVE_PUTWC */
 
 #ifdef HWLOC_HAVE_LIBTERMCAP
-#include <curses.h>
+#ifdef HWLOC_USE_NCURSES
+#  include <ncurses.h>
+#else
+#  include <curses.h>
+#endif
 #include <term.h>
 #endif /* HWLOC_HAVE_LIBTERMCAP */
 
 #include "lstopo.h"
+#include "misc.h"
 
 #define indent(output, i) \
   fprintf (output, "%*s", (int) i, "");
@@ -43,28 +48,35 @@
 static void
 output_console_obj (hwloc_obj_t l, FILE *output, int logical, int verbose_mode)
 {
-  char type[32], attr[256], phys[32] = "";
+  char type[32], *attr, phys[32] = "";
   unsigned idx = logical ? l->logical_index : l->os_index;
   const char *indexprefix = logical ? " L#" :  " P#";
   if (show_cpuset < 2) {
+    int len;
     if (l->type == HWLOC_OBJ_MISC && l->name)
       fprintf(output, "%s", l->name);
     else {
       hwloc_obj_type_snprintf (type, sizeof(type), l, verbose_mode-1);
       fprintf(output, "%s", type);
     }
-    if (l->depth != 0 && idx != (unsigned)-1)
+    if (l->depth != 0 && idx != (unsigned)-1
+        && l->type != HWLOC_OBJ_PCI_DEVICE
+        && (l->type != HWLOC_OBJ_BRIDGE || l->attr->bridge.upstream_type == HWLOC_OBJ_BRIDGE_HOST))
       fprintf(output, "%s%u", indexprefix, idx);
     if (logical && l->os_index != (unsigned) -1 &&
 	(verbose_mode >= 2 || l->type == HWLOC_OBJ_PU || l->type == HWLOC_OBJ_NODE))
       snprintf(phys, sizeof(phys), "P#%u", l->os_index);
-    hwloc_obj_attr_snprintf (attr, sizeof(attr), l, " ", verbose_mode-1);
+    len = hwloc_obj_attr_snprintf (NULL, 0, l, " ", verbose_mode-1);
+    attr = malloc(len+1);
+    *attr = '\0';
+    hwloc_obj_attr_snprintf (attr, len+1, l, " ", verbose_mode-1);
     if (*phys || *attr) {
       const char *separator = *phys != '\0' && *attr!= '\0' ? " " : "";
       fprintf(output, " (%s%s%s)",
 	      phys, separator, attr);
     }
-    if (verbose_mode >= 2 && l->name && l->type != HWLOC_OBJ_MISC)
+    free(attr);
+    if ((l->type == HWLOC_OBJ_OS_DEVICE || verbose_mode >= 2) && l->name && l->type != HWLOC_OBJ_MISC)
       fprintf(output, " \"%s\"", l->name);
   }
   if (!l->cpuset)
@@ -153,13 +165,43 @@ void output_console(hwloc_topology_t topology, const char *filename, int logical
   }
 
   if (verbose_mode > 1 || !verbose_mode) {
-    unsigned depth;
+    unsigned depth, nbobjs;
     for (depth = 0; depth < topodepth; depth++) {
-      hwloc_obj_type_t type = hwloc_get_depth_type (topology, depth);
-      unsigned nbobjs = hwloc_get_nbobjs_by_depth (topology, depth);
+      hwloc_obj_t obj = hwloc_get_obj_by_depth(topology, depth, 0);
+      char type[64];
+      nbobjs = hwloc_get_nbobjs_by_depth (topology, depth);
       indent(output, depth);
-      fprintf (output, "depth %u:\t%u %s%s (type #%u)\n",
-	       depth, nbobjs, hwloc_obj_type_string (type), nbobjs>1?"s":"", type);
+      hwloc_obj_type_snprintf(type, sizeof(type), obj, 1);
+      fprintf (output, "depth %u:\t%u %s (type #%u)\n",
+	       depth, nbobjs, type, obj->type);
+    }
+    nbobjs = hwloc_get_nbobjs_by_depth (topology, HWLOC_TYPE_DEPTH_BRIDGE);
+    if (nbobjs)
+      fprintf (output, "Special depth %d:\t%u %s (type #%u)\n",
+	       HWLOC_TYPE_DEPTH_BRIDGE, nbobjs, "Bridge", HWLOC_OBJ_BRIDGE);
+    nbobjs = hwloc_get_nbobjs_by_depth (topology, HWLOC_TYPE_DEPTH_PCI_DEVICE);
+    if (nbobjs)
+      fprintf (output, "Special depth %d:\t%u %s (type #%u)\n",
+	       HWLOC_TYPE_DEPTH_PCI_DEVICE, nbobjs, "PCI Device", HWLOC_OBJ_PCI_DEVICE);
+    nbobjs = hwloc_get_nbobjs_by_depth (topology, HWLOC_TYPE_DEPTH_OS_DEVICE);
+    if (nbobjs)
+      fprintf (output, "Special depth %d:\t%u %s (type #%u)\n",
+	       HWLOC_TYPE_DEPTH_OS_DEVICE, nbobjs, "OS Device", HWLOC_OBJ_OS_DEVICE);
+  }
+
+  if (verbose_mode > 1) {
+    const struct hwloc_distances_s * distances;
+    unsigned depth;
+
+    for (depth = 0; depth < topodepth; depth++) {
+      distances = hwloc_get_whole_distance_matrix_by_depth(topology, depth);
+      if (!distances || !distances->latency)
+        continue;
+      printf("latency matrix between %ss (depth %u) by %s indexes:\n",
+	     hwloc_obj_type_string(hwloc_get_depth_type(topology, depth)),
+	     depth,
+	     logical ? "logical" : "physical");
+      hwloc_utils_print_distance_matrix(topology, hwloc_get_root_obj(topology), distances->nbobjs, depth, distances->latency, logical);
     }
   }
 
@@ -169,7 +211,7 @@ void output_console(hwloc_topology_t topology, const char *filename, int logical
     hwloc_const_bitmap_t online = hwloc_topology_get_online_cpuset(topology);
     hwloc_const_bitmap_t allowed = hwloc_topology_get_allowed_cpuset(topology);
 
-    if (!hwloc_bitmap_isequal(topo, complete)) {
+    if (complete && !hwloc_bitmap_isequal(topo, complete)) {
       hwloc_bitmap_t unknown = hwloc_bitmap_alloc();
       char *unknownstr;
       hwloc_bitmap_copy(unknown, complete);
@@ -179,7 +221,7 @@ void output_console(hwloc_topology_t topology, const char *filename, int logical
       free(unknownstr);
       hwloc_bitmap_free(unknown);
     }
-    if (!hwloc_bitmap_isequal(online, complete)) {
+    if (complete && !hwloc_bitmap_isequal(online, complete)) {
       hwloc_bitmap_t offline = hwloc_bitmap_alloc();
       char *offlinestr;
       hwloc_bitmap_copy(offline, complete);
@@ -189,7 +231,7 @@ void output_console(hwloc_topology_t topology, const char *filename, int logical
       free(offlinestr);
       hwloc_bitmap_free(offline);
     }
-    if (!hwloc_bitmap_isequal(allowed, online)) {
+    if (complete && !hwloc_bitmap_isequal(allowed, online)) {
       if (!hwloc_bitmap_isincluded(online, allowed)) {
         hwloc_bitmap_t forbidden = hwloc_bitmap_alloc();
         char *forbiddenstr;
@@ -215,7 +257,38 @@ void output_console(hwloc_topology_t topology, const char *filename, int logical
       fprintf (output, "Topology not from this system\n");
   }
 
-  fclose(output);
+  if (output != stdout)
+    fclose(output);
+}
+
+void output_synthetic(hwloc_topology_t topology, const char *filename, int logical __hwloc_attribute_unused, int legend __hwloc_attribute_unused, int verbose_mode __hwloc_attribute_unused)
+{
+  FILE *output;
+  hwloc_obj_t obj = hwloc_get_root_obj(topology);
+  int arity;
+
+  if (!filename || !strcmp(filename, "-"))
+    output = stdout;
+  else {
+    output = open_file(filename, "w");
+    if (!output) {
+      fprintf(stderr, "Failed to open %s for writing (%s)\n", filename, strerror(errno));
+      return;
+    }
+  }
+
+  if (!obj->symmetric_subtree) {
+    fprintf(stderr, "Cannot output assymetric topology in synthetic format\n");
+    return;
+  }
+
+  arity = obj->arity;
+  while (arity) {
+    obj = obj->first_child;
+    fprintf(output, "%s:%u ", hwloc_obj_type_string(obj->type), arity);
+    arity = obj->arity;
+  }
+  fprintf(output, "\n");
 }
 
 /*
@@ -441,47 +514,45 @@ from_directions(struct display *disp, int direction)
 {
 #ifdef HAVE_PUTWC
   if (disp->utf8) {
-    static const wchar_t chars[] = {
-      [down|right]	= L'\x250c',
-      [down|left]	= L'\x2510',
-      [up|right]	= L'\x2514',
-      [up|left]		= L'\x2518',
-      [left|right]	= L'\x2500',
-      [down|up]		= L'\x2502',
-      [down]		= L'\x2577',
-      [up]		= L'\x2575',
-      [right]		= L'\x2576',
-      [left]		= L'\x2574',
-      [down|up|right]	= L'\x251c',
-      [down|up|left]	= L'\x2524',
-      [down|left|right]	= L'\x252c',
-      [up|left|right]	= L'\x2534',
-      [down|up|left|right]	= L'\x253c',
-      [0]		= L' ',
+    switch (direction) {
+    case down|right:		return L'\x250c';
+    case down|left:		return L'\x2510';
+    case up|right:		return L'\x2514';
+    case up|left:		return L'\x2518';
+    case left|right:		return L'\x2500';
+    case down|up:		return L'\x2502';
+    case down:			return L'\x2577';
+    case up:			return L'\x2575';
+    case right:			return L'\x2576';
+    case left:			return L'\x2574';
+    case down|up|right:		return L'\x251c';
+    case down|up|left:		return L'\x2524';
+    case down|left|right:	return L'\x252c';
+    case up|left|right:		return L'\x2534';
+    case down|up|left|right:	return L'\x253c';
+    default:			return L' ';
     };
-    return chars[direction];
   } else
 #endif /* HAVE_PUTWC */
   {
-    static const char chars[] = {
-      [down|right]	= '/',
-      [down|left]	= '\\',
-      [up|right]	= '\\',
-      [up|left]		= '/',
-      [left|right]	= '-',
-      [down|up]		= '|',
-      [down]		= '|',
-      [up]		= '|',
-      [right]		= '-',
-      [left]		= '-',
-      [down|up|right]	= '+',
-      [down|up|left]	= '+',
-      [down|left|right]	= '+',
-      [up|left|right]	= '+',
-      [down|up|left|right]	= '+',
-      [0]		= ' ',
+    switch (direction) {
+    case down|right:		return '/';
+    case down|left:		return '\\';
+    case up|right:		return '\\';
+    case up|left:		return '/';
+    case left|right:		return '-';
+    case down|up:		return '|';
+    case down:			return '|';
+    case up:			return '|';
+    case right:			return '-';
+    case left:			return '-';
+    case down|up|right:		return '+';
+    case down|up|left:		return '+';
+    case down|left|right:	return '+';
+    case up|left|right:		return '+';
+    case down|up|left|right:	return '+';
+    default:			return ' ';
     };
-    return chars[direction];
   }
 }
 
@@ -490,12 +561,13 @@ static void
 merge(struct display *disp, int x, int y, int or, int andnot, int r, int g, int b)
 {
   character current;
+  int directions;
   if (x >= disp->width || y >= disp->height) {
     /* fprintf(stderr, "|%x &~%x overflowed to (%d,%d)\n", or, andnot, x, y); */
     return;
   }
   current = disp->cells[y][x].c;
-  int directions = (to_directions(disp, current) & ~andnot) | or;
+  directions = (to_directions(disp, current) & ~andnot) | or;
   put(disp, x, y, from_directions(disp, directions), -1, -1, -1, r, g, b);
 }
 
@@ -594,16 +666,28 @@ text_text(void *output, int r, int g, int b, int size __hwloc_attribute_unused, 
   struct display *disp = output;
   x /= (gridsize/2);
   y /= gridsize;
+
+#if defined(HAVE_PUTWC) && !defined(__MINGW32__)
+  {
+    size_t len = strlen(text) + 1;
+    wchar_t *wbuf = malloc(len * sizeof(wchar_t)), *wtext;
+    swprintf(wbuf, len, L"%s", text);
+    for (wtext = wbuf ; *wtext; wtext++)
+      put(disp, x++, y, *wtext, r, g, b, -1, -1, -1);
+    free(wbuf);
+  }
+#else
   for ( ; *text; text++)
     put(disp, x++, y, *text, r, g, b, -1, -1, -1);
+#endif
 }
 
 static struct draw_methods text_draw_methods = {
-  .start = text_start,
-  .declare_color = text_declare_color,
-  .box = text_box,
-  .line = text_line,
-  .text = text_text,
+  text_start,
+  text_declare_color,
+  text_box,
+  text_line,
+  text_text,
 };
 
 void output_text(hwloc_topology_t topology, const char *filename, int logical, int legend, int verbose_mode __hwloc_attribute_unused)
@@ -707,4 +791,7 @@ void output_text(hwloc_topology_t topology, const char *filename, int logical, i
 #endif /* HWLOC_HAVE_LIBTERMCAP */
     putcharacter('\n', output);
   }
+
+  if (output != stdout)
+    fclose(output);
 }

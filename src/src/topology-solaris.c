@@ -1,19 +1,26 @@
 /*
  * Copyright © 2009 CNRS
- * Copyright © 2009-2010 INRIA
- * Copyright © 2009-2010 Université Bordeaux 1
+ * Copyright © 2009-2012 Inria.  All rights reserved.
+ * Copyright © 2009-2011 Université Bordeaux 1
+ * Copyright © 2011 Cisco Systems, Inc.  All rights reserved.
+ * Copyright © 2011      Oracle and/or its affiliates.  All rights reserved.
  * See COPYING in top-level directory.
  */
 
-#include <private/config.h>
+#include <private/autogen/config.h>
 #include <hwloc.h>
 #include <private/private.h>
 #include <private/debug.h>
+#include <private/solaris-chiptype.h>
 
 #include <stdio.h>
 #include <errno.h>
+#ifdef HAVE_DIRENT_H
 #include <dirent.h>
+#endif
+#ifdef HAVE_UNISTD_H
 #include <unistd.h>
+#endif
 #include <sys/types.h>
 #include <sys/processor.h>
 #include <sys/procset.h>
@@ -25,12 +32,15 @@
 #endif
 
 /* TODO: use psets? (only for root)
+ * TODO: get cache info from prtdiag? (it is setgid sys to be able to read from
+ * crw-r-----   1 root     sys       88,  0 nov   3 14:35 /devices/pseudo/devinfo@0:devinfo
+ * and run (apparently undocumented) ioctls on it.
  */
 
 static int
 hwloc_solaris_set_sth_cpubind(hwloc_topology_t topology, idtype_t idtype, id_t id, hwloc_const_bitmap_t hwloc_set, int flags)
 {
-  unsigned target;
+  unsigned target_cpu;
 
   /* The resulting binding is always strict */
 
@@ -99,10 +109,10 @@ hwloc_solaris_set_sth_cpubind(hwloc_topology_t topology, idtype_t idtype, id_t i
     return -1;
   }
 
-  target = hwloc_bitmap_first(hwloc_set);
+  target_cpu = hwloc_bitmap_first(hwloc_set);
 
   if (processor_bind(idtype, id,
-		     (processorid_t) (target), NULL) != 0)
+		     (processorid_t) (target_cpu), NULL) != 0)
     return -1;
 
   return 0;
@@ -340,7 +350,9 @@ browse(struct hwloc_topology *topology, lgrp_cookie_t cookie, lgrp_id_t lgrp, hw
   if ((mem_size = lgrp_mem_size(cookie, lgrp, LGRP_MEM_SZ_INSTALLED, LGRP_CONTENT_DIRECT)) > 0)
   {
     int i;
-    processorid_t cpuids[n];
+    processorid_t *cpuids;
+    cpuids = malloc(sizeof(processorid_t) * n);
+    assert(cpuids != NULL);
 
     obj = hwloc_alloc_setup_object(HWLOC_OBJ_NODE, lgrp);
     obj->nodeset = hwloc_bitmap_alloc();
@@ -367,13 +379,16 @@ browse(struct hwloc_topology *topology, lgrp_cookie_t cookie, lgrp_id_t lgrp, hw
     obj->memory.page_types[1].size = sysconf(_SC_LARGE_PAGESIZE);
 #endif
     hwloc_insert_object_by_cpuset(topology, obj);
+    free(cpuids);
   }
 
   n = lgrp_children(cookie, lgrp, NULL, 0);
   {
-    lgrp_id_t lgrps[n];
+    lgrp_id_t *lgrps;
     int i;
 
+    lgrps = malloc(sizeof(lgrp_id_t) * n);
+    assert(lgrps != NULL);
     lgrp_children(cookie, lgrp, lgrps, n);
     hwloc_debug("lgrp %ld has %d children\n", lgrp, n);
     for (i = 0; i < n ; i++)
@@ -381,6 +396,7 @@ browse(struct hwloc_topology *topology, lgrp_cookie_t cookie, lgrp_id_t lgrp, hw
 	browse(topology, cookie, lgrps[i], glob_lgrps, curlgrp);
       }
     hwloc_debug("lgrp %ld's children done\n", lgrp);
+    free(lgrps);
   }
 }
 
@@ -404,19 +420,19 @@ hwloc_look_lgrp(struct hwloc_topology *topology)
   nlgrps = lgrp_nlgrps(cookie);
   root = lgrp_root(cookie);
   {
-    hwloc_obj_t glob_lgrps[nlgrps];
+    hwloc_obj_t *glob_lgrps = calloc(nlgrps, sizeof(hwloc_obj_t));
     browse(topology, cookie, root, glob_lgrps, &curlgrp);
 #ifdef HAVE_LGRP_LATENCY_COOKIE
     {
-      unsigned distances[curlgrp][curlgrp];
-      unsigned indexes[curlgrp];
+      float *distances = calloc(curlgrp*curlgrp, sizeof(float));
+      unsigned *indexes = calloc(curlgrp,sizeof(unsigned));
       unsigned i, j;
       for (i = 0; i < curlgrp; i++) {
-        indexes[i] = glob_lgrps[i]->os_index;
+	indexes[i] = glob_lgrps[i]->os_index;
 	for (j = 0; j < curlgrp; j++)
-	  distances[i][j] = lgrp_latency_cookie(cookie, glob_lgrps[i]->os_index, glob_lgrps[j]->os_index, LGRP_LAT_CPU_TO_MEM);
+          distances[i*curlgrp+j] = (float) lgrp_latency_cookie(cookie, glob_lgrps[i]->os_index, glob_lgrps[j]->os_index, LGRP_LAT_CPU_TO_MEM);
       }
-      hwloc_setup_misc_level_from_distances(topology, curlgrp, glob_lgrps, (unsigned*) distances, (unsigned*) indexes);
+      hwloc_distances_set(topology, HWLOC_OBJ_NODE, curlgrp, indexes, glob_lgrps, distances, 0 /* OS cannot force */);
     }
 #endif /* HAVE_LGRP_LATENCY_COOKIE */
   }
@@ -426,47 +442,60 @@ hwloc_look_lgrp(struct hwloc_topology *topology)
 
 #ifdef HAVE_LIBKSTAT
 #include <kstat.h>
-#define HWLOC_NBMAXCPUS 1024 /* FIXME: drop */
 static int
 hwloc_look_kstat(struct hwloc_topology *topology)
 {
+  /* FIXME this assumes that all sockets are identical */
+  char *CPUType = hwloc_solaris_get_chip_type();
+  char *CPUModel = hwloc_solaris_get_chip_model();
+
   kstat_ctl_t *kc = kstat_open();
   kstat_t *ksp;
   kstat_named_t *stat;
   unsigned look_cores = 1, look_chips = 1;
 
-  unsigned numsockets = 0;
-  unsigned proc_physids[HWLOC_NBMAXCPUS];
-  unsigned proc_osphysids[HWLOC_NBMAXCPUS];
-  unsigned osphysids[HWLOC_NBMAXCPUS];
+  unsigned Pproc_max = 0;
+  unsigned Pproc_alloc = 256;
+  struct hwloc_solaris_Pproc {
+    unsigned Lsock, Psock, Lcore, Lproc;
+  } * Pproc = malloc(Pproc_alloc * sizeof(*Pproc));
 
-  unsigned numcores = 0;
-  unsigned proc_coreids[HWLOC_NBMAXCPUS];
-  unsigned oscoreids[HWLOC_NBMAXCPUS];
+  unsigned Lproc_num = 0;
+  unsigned Lproc_alloc = 256;
+  struct hwloc_solaris_Lproc {
+    unsigned Pproc;
+  } * Lproc = malloc(Lproc_alloc * sizeof(*Lproc));
 
-  unsigned core_osphysids[HWLOC_NBMAXCPUS];
+  unsigned Lcore_num = 0;
+  unsigned Lcore_alloc = 256;
+  struct hwloc_solaris_Lcore {
+    unsigned Pcore, Psock;
+  } * Lcore = malloc(Lcore_alloc * sizeof(*Lcore));
 
-  unsigned numprocs = 0;
-  unsigned proc_procids[HWLOC_NBMAXCPUS];
-  unsigned osprocids[HWLOC_NBMAXCPUS];
+  unsigned Lsock_num = 0;
+  unsigned Lsock_alloc = 256;
+  struct hwloc_solaris_Lsock {
+    unsigned Psock;
+  } * Lsock = malloc(Lsock_alloc * sizeof(*Lsock));
 
-  unsigned physid, coreid, cpuid;
-  unsigned procid_max = 0;
+  unsigned sockid, coreid, cpuid;
   unsigned i;
 
-  for (cpuid = 0; cpuid < HWLOC_NBMAXCPUS; cpuid++)
-    {
-      proc_procids[cpuid] = -1;
-      proc_physids[cpuid] = -1;
-      proc_osphysids[cpuid] = -1;
-      proc_coreids[cpuid] = -1;
-    }
+  for (i = 0; i < Pproc_alloc; i++) {
+    Pproc[i].Lproc = -1;
+    Pproc[i].Lsock = -1;
+    Pproc[i].Psock = -1;
+    Pproc[i].Lcore = -1;
+  }
 
-  if (!kc)
-    {
-      hwloc_debug("kstat_open failed: %s\n", strerror(errno));
-      return 0;
-    }
+  if (!kc) {
+    hwloc_debug("kstat_open failed: %s\n", strerror(errno));
+    free(Pproc);
+    free(Lproc);
+    free(Lcore);
+    free(Lsock);
+    return 0;
+  }
 
   for (ksp = kc->kc_chain; ksp; ksp = ksp->ks_next)
     {
@@ -474,11 +503,6 @@ hwloc_look_kstat(struct hwloc_topology *topology)
 	continue;
 
       cpuid = ksp->ks_instance;
-      if (cpuid > HWLOC_NBMAXCPUS)
-	{
-	  fprintf(stderr,"CPU id too big: %u\n", cpuid);
-	  continue;
-	}
 
       if (kstat_read(kc, ksp, NULL) == -1)
 	{
@@ -487,12 +511,28 @@ hwloc_look_kstat(struct hwloc_topology *topology)
 	}
 
       hwloc_debug("cpu%u\n", cpuid);
-      proc_procids[cpuid] = numprocs;
-      osprocids[numprocs] = cpuid;
-      numprocs++;
 
-      if (cpuid >= procid_max)
-        procid_max = cpuid + 1;
+      if (cpuid >= Pproc_alloc) {
+	Pproc_alloc *= 2;
+	Pproc = realloc(Pproc, Pproc_alloc * sizeof(*Pproc));
+	for(i = Pproc_alloc/2; i < Pproc_alloc; i++) {
+	  Pproc[i].Lproc = -1;
+	  Pproc[i].Lsock = -1;
+	  Pproc[i].Psock = -1;
+	  Pproc[i].Lcore = -1;
+	}
+      }
+      Pproc[cpuid].Lproc = Lproc_num;
+
+      if (Lproc_num >= Lproc_alloc) {
+	Lproc_alloc *= 2;
+	Lproc = realloc(Lproc, Lproc_alloc * sizeof(*Lproc));
+      }
+      Lproc[Lproc_num].Pproc = cpuid;
+      Lproc_num++;
+
+      if (cpuid >= Pproc_max)
+        Pproc_max = cpuid + 1;
 
       stat = (kstat_named_t *) kstat_data_lookup(ksp, "state");
       if (!stat)
@@ -512,7 +552,7 @@ hwloc_look_kstat(struct hwloc_topology *topology)
 	stat = (kstat_named_t *) kstat_data_lookup(ksp, "chip_id");
 	if (!stat)
 	  {
-	    if (numsockets)
+	    if (Lsock_num)
 	      fprintf(stderr, "could not read socket id for CPU%u: %s\n", cpuid, strerror(errno));
 	    else
 	      hwloc_debug("could not read socket id for CPU%u: %s\n", cpuid, strerror(errno));
@@ -521,17 +561,17 @@ hwloc_look_kstat(struct hwloc_topology *topology)
 	  }
 	switch (stat->data_type) {
 	  case KSTAT_DATA_INT32:
-	    physid = stat->value.i32;
+	    sockid = stat->value.i32;
 	    break;
 	  case KSTAT_DATA_UINT32:
-	    physid = stat->value.ui32;
+	    sockid = stat->value.ui32;
 	    break;
 #ifdef _INT64_TYPE
 	  case KSTAT_DATA_UINT64:
-	    physid = stat->value.ui64;
+	    sockid = stat->value.ui64;
 	    break;
 	  case KSTAT_DATA_INT64:
-	    physid = stat->value.i64;
+	    sockid = stat->value.i64;
 	    break;
 #endif
 	  default:
@@ -539,14 +579,19 @@ hwloc_look_kstat(struct hwloc_topology *topology)
 	    look_chips = 0;
 	    continue;
 	}
-	proc_osphysids[cpuid] = physid;
-	for (i = 0; i < numsockets; i++)
-	  if (physid == osphysids[i])
+	Pproc[cpuid].Psock = sockid;
+	for (i = 0; i < Lsock_num; i++)
+	  if (sockid == Lsock[i].Psock)
 	    break;
-	proc_physids[cpuid] = i;
-	hwloc_debug("%u on socket %u (%u)\n", cpuid, i, physid);
-	if (i == numsockets)
-	  osphysids[numsockets++] = physid;
+	Pproc[cpuid].Lsock = i;
+	hwloc_debug("%u on socket %u (%u)\n", cpuid, i, sockid);
+	if (i == Lsock_num) {
+	  if (Lsock_num == Lsock_alloc) {
+	    Lsock_alloc *= 2;
+	    Lsock = realloc(Lsock, Lsock_alloc * sizeof(*Lsock));
+	  }
+	  Lsock[Lsock_num++].Psock = sockid;
+	}
       } while(0);
 
       if (look_cores) do {
@@ -554,7 +599,7 @@ hwloc_look_kstat(struct hwloc_topology *topology)
 	stat = (kstat_named_t *) kstat_data_lookup(ksp, "core_id");
 	if (!stat)
 	  {
-	    if (numcores)
+	    if (Lcore_num)
 	      fprintf(stderr, "could not read core id for CPU%u: %s\n", cpuid, strerror(errno));
 	    else
 	      hwloc_debug("could not read core id for CPU%u: %s\n", cpuid, strerror(errno));
@@ -581,16 +626,19 @@ hwloc_look_kstat(struct hwloc_topology *topology)
 	    look_cores = 0;
 	    continue;
 	}
-	for (i = 0; i < numcores; i++)
-	  if (coreid == oscoreids[i] && proc_osphysids[cpuid] == core_osphysids[i])
+	for (i = 0; i < Lcore_num; i++)
+	  if (coreid == Lcore[i].Pcore && Pproc[cpuid].Psock == Lcore[i].Psock)
 	    break;
-	proc_coreids[cpuid] = i;
+	Pproc[cpuid].Lcore = i;
 	hwloc_debug("%u on core %u (%u)\n", cpuid, i, coreid);
-	if (i == numcores)
-	  {
-	    core_osphysids[numcores] = proc_osphysids[cpuid];
-	    oscoreids[numcores++] = coreid;
+	if (i == Lcore_num) {
+	  if (Lcore_num == Lcore_alloc) {
+	    Lcore_alloc *= 2;
+	    Lcore = realloc(Lcore, Lcore_alloc * sizeof(*Lcore));
 	  }
+	  Lcore[Lcore_num].Psock = Pproc[cpuid].Psock;
+	  Lcore[Lcore_num++].Pcore = coreid;
+	}
       } while(0);
 
       /* Note: there is also clog_id for the Thread ID (not unique) and
@@ -598,18 +646,65 @@ hwloc_look_kstat(struct hwloc_topology *topology)
        * however. */
     }
 
-  if (look_chips)
-    hwloc_setup_level(procid_max, numsockets, osphysids, proc_physids, topology, HWLOC_OBJ_SOCKET);
+  if (look_chips) {
+    struct hwloc_obj *obj;
+    unsigned j,k;
+    hwloc_debug("%d Sockets\n", Lsock_num);
+    for (j = 0; j < Lsock_num; j++) {
+      obj = hwloc_alloc_setup_object(HWLOC_OBJ_SOCKET, Lsock[j].Psock);
+      if (CPUType)
+	hwloc_obj_add_info(obj, "CPUType", CPUType);
+      if (CPUModel)
+	hwloc_obj_add_info(obj, "CPUModel", CPUModel);
+      obj->cpuset = hwloc_bitmap_alloc();
+      for(k=0; k<Pproc_max; k++)
+	if (Pproc[k].Lsock == j)
+	  hwloc_bitmap_set(obj->cpuset, k);
+      hwloc_debug_1arg_bitmap("Socket %d has cpuset %s\n", j, obj->cpuset);
+      hwloc_insert_object_by_cpuset(topology, obj);
+    }
+    hwloc_debug("%s", "\n");
+  }
 
-  if (look_cores)
-    hwloc_setup_level(procid_max, numcores, oscoreids, proc_coreids, topology, HWLOC_OBJ_CORE);
-
-  if (numprocs)
-    hwloc_setup_level(procid_max, numprocs, osprocids, proc_procids, topology, HWLOC_OBJ_PU);
+  if (look_cores) {
+    struct hwloc_obj *obj;
+    unsigned j,k;
+    hwloc_debug("%d Cores\n", Lcore_num);
+    for (j = 0; j < Lcore_num; j++) {
+      obj = hwloc_alloc_setup_object(HWLOC_OBJ_CORE, Lcore[j].Pcore);
+      obj->cpuset = hwloc_bitmap_alloc();
+      for(k=0; k<Pproc_max; k++)
+	if (Pproc[k].Lcore == j)
+	  hwloc_bitmap_set(obj->cpuset, k);
+      hwloc_debug_1arg_bitmap("Core %d has cpuset %s\n", j, obj->cpuset);
+      hwloc_insert_object_by_cpuset(topology, obj);
+    }
+    hwloc_debug("%s", "\n");
+  }
+  if (Lproc_num) {
+    struct hwloc_obj *obj;
+    unsigned j,k;
+    hwloc_debug("%d PUs\n", Lproc_num);
+    for (j = 0; j < Lproc_num; j++) {
+      obj = hwloc_alloc_setup_object(HWLOC_OBJ_PU, Lproc[j].Pproc);
+      obj->cpuset = hwloc_bitmap_alloc();
+      for(k=0; k<Pproc_max; k++)
+	if (Pproc[k].Lproc == j)
+	  hwloc_bitmap_set(obj->cpuset, k);
+      hwloc_debug_1arg_bitmap("PU %d has cpuset %s\n", j, obj->cpuset);
+      hwloc_insert_object_by_cpuset(topology, obj);
+    }
+    hwloc_debug("%s", "\n");
+  }
 
   kstat_close(kc);
 
-  return numprocs > 0;
+  free(Pproc);
+  free(Lproc);
+  free(Lcore);
+  free(Lsock);
+
+  return Lproc_num > 0;
 }
 #endif /* LIBKSTAT */
 
@@ -627,7 +722,7 @@ hwloc_look_solaris(struct hwloc_topology *topology)
 #endif /* HAVE_LIBKSTAT */
   hwloc_setup_pu_level(topology, nbprocs);
 
-  hwloc_add_object_info(topology->levels[0][0], "Backend", "Solaris");
+  hwloc_obj_add_info(topology->levels[0][0], "Backend", "Solaris");
 }
 
 void
@@ -640,15 +735,15 @@ hwloc_set_solaris_hooks(struct hwloc_topology *topology)
   topology->get_proc_cpubind = hwloc_solaris_get_proc_cpubind;
   topology->get_thisproc_cpubind = hwloc_solaris_get_thisproc_cpubind;
   topology->get_thisthread_cpubind = hwloc_solaris_get_thisthread_cpubind;
-#endif /* HAVE_LIBLGRP */
-#ifdef MADV_ACCESS_LWP 
-  topology->set_area_membind = hwloc_solaris_set_area_membind;
   topology->set_proc_membind = hwloc_solaris_set_proc_membind;
   topology->set_thisproc_membind = hwloc_solaris_set_thisproc_membind;
   topology->set_thisthread_membind = hwloc_solaris_set_thisthread_membind;
   topology->get_proc_membind = hwloc_solaris_get_proc_membind;
   topology->get_thisproc_membind = hwloc_solaris_get_thisproc_membind;
   topology->get_thisthread_membind = hwloc_solaris_get_thisthread_membind;
+#endif /* HAVE_LIBLGRP */
+#ifdef MADV_ACCESS_LWP 
+  topology->set_area_membind = hwloc_solaris_set_area_membind;
   topology->support.membind->firsttouch_membind = 1;
   topology->support.membind->bind_membind = 1;
   topology->support.membind->interleave_membind = 1;

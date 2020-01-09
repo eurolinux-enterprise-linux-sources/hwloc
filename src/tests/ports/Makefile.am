@@ -1,6 +1,7 @@
-# Copyright © 2009-2010 INRIA
-# Copyright © 2009 Université Bordeaux 1
+# Copyright © 2009-2010 inria.  All rights reserved.
+# Copyright © 2009, 2011-2012 Université Bordeaux 1
 # Copyright © 2009-2010 Cisco Systems, Inc.  All rights reserved.
+# See COPYING in top-level directory.
 
 AM_CFLAGS = $(HWLOC_CFLAGS)
 AM_CPPFLAGS = $(HWLOC_CPPFLAGS)
@@ -22,10 +23,8 @@ endif HWLOC_BUILD_TESTS
 # dependencies issues when using the Automake option "subdir-objects".
 # We nodist these because they're created by configure.
 nodist_libhwloc_ports_la_SOURCES = \
-        topology.c \
-        traversal.c \
-        topology-synthetic.c \
         topology-solaris.c \
+        topology-solaris-chiptype.c \
         topology-aix.c \
         topology-osf.c \
         topology-windows.c \
@@ -36,6 +35,7 @@ nodist_libhwloc_ports_la_SOURCES = \
 libhwloc_ports_la_SOURCES = \
         include/windows.h \
         include/kstat.h \
+        include/picl.h \
         include/sys/rset.h \
         include/sys/lgrp_user.h \
         include/sys/sysctl.h \
@@ -44,9 +44,12 @@ libhwloc_ports_la_SOURCES = \
         include/sys/thread.h \
         include/sys/mpctl.h \
         include/sys/cpuset.h \
+        include/sys/systemcfg.h \
+        include/sys/systeminfo.h \
         include/radset.h \
         include/cpuset.h \
         include/numa.h \
+        include/procinfo.h \
         include/pthread_np.h
 
 libhwloc_ports_la_CPPFLAGS = \
@@ -60,5 +63,6 @@ libhwloc_ports_la_CPPFLAGS = \
         -DHWLOC_WIN_SYS \
         -DHWLOC_DARWIN_SYS \
         -DHWLOC_FREEBSD_SYS -DHAVE_SYS_CPUSET_H \
-        -DHWLOC_HPUX_SYS
+        -DHWLOC_HPUX_SYS \
+        -DHWLOC_INSIDE_LIBHWLOC
 

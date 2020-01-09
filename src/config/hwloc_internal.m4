@@ -1,7 +1,7 @@
 dnl -*- Autoconf -*-
 dnl
-dnl Copyright (c) 2009 INRIA
-dnl Copyright (c) 2009 Université Bordeaux 1
+dnl Copyright (c) 2009 inria.  All rights reserved.
+dnl Copyright (c) 2009, 2011 Université Bordeaux 1
 dnl Copyright (c) 2004-2005 The Trustees of Indiana University and Indiana
 dnl                         University Research and Technology
 dnl                         Corporation.  All rights reserved.
@@ -9,8 +9,10 @@ dnl Copyright (c) 2004-2005 The Regents of the University of California.
 dnl                         All rights reserved.
 dnl Copyright (c) 2004-2008 High Performance Computing Center Stuttgart, 
 dnl                         University of Stuttgart.  All rights reserved.
-dnl Copyright ©  2010 INRIA
-dnl Copyright ©  2006-2010 Cisco Systems, Inc.  All rights reserved.
+dnl Copyright ©  2010 inria.  All rights reserved.
+dnl Copyright © 2006-2011 Cisco Systems, Inc.  All rights reserved.
+dnl
+dnl See COPYING in top-level directory.
 
 #-----------------------------------------------------------------------
 
@@ -53,10 +55,21 @@ AC_DEFUN([HWLOC_DEFINE_ARGS],[
                   AS_HELP_STRING([--disable-cairo], 
                                  [Disable the Cairo back-end of hwloc's lstopo command]))
 
-    # XML?
-    AC_ARG_ENABLE([xml],
-                  AS_HELP_STRING([--disable-xml], 
-		                 [Disable the XML back-end of hwloc's lstopo command]))
+    # XML using libxml2?
+    AC_ARG_ENABLE([libxml2],
+                  AS_HELP_STRING([--disable-libxml2], 
+		                 [Do not use libxml2 for XML support, use a custom minimalistic support]))
+
+    # PCI?
+    AC_ARG_ENABLE([pci],
+                  AS_HELP_STRING([--disable-pci],
+                                 [Disable the PCI device discovery using libpci]))
+
+    # Linux libnuma
+    AC_ARG_ENABLE([libnuma],
+                  AS_HELP_STRING([--disable-libnuma],
+                                 [Disable the Linux libnuma]))
+
 ])dnl
 
 #-----------------------------------------------------------------------
@@ -104,7 +117,25 @@ EOF
     AS_IF([test "x$DOXYGEN" != "x" -a "x$PDFLATEX" != "x" -a "x$MAKEINDEX" != "x" -a "x$FIG2DEV" != "x" -a "x$GS" != "x" -a "x$EPSTOPDF" != "x"],
                  [hwloc_generate_doxs=yes], [hwloc_generate_doxs=no])
     AC_MSG_RESULT([$hwloc_generate_doxs])
+    AS_IF([test "x$hwloc_generate_doxs" = xyes -a "x$HWLOC_DOXYGEN_VERSION" = x1.6.2],
+                 [hwloc_generate_doxs="no"; AC_MSG_WARN([doxygen 1.6.2 has broken short name support, disabling])])
     
+    # Linux and OS X take different sed arguments.
+    AC_PROG_SED
+    AC_MSG_CHECKING([if the sed -i option requires an argument])
+    rm -f conftest
+    cat > conftest <<EOF
+hello
+EOF
+    $SED -i -e s/hello/goodbye/ conftest 2> /dev/null
+    AS_IF([test -f conftest-e],
+          [SED_I="$SED -i ''"
+           AC_MSG_RESULT([yes])],
+          [SED_I="$SED -i"
+           AC_MSG_RESULT([no])])
+    rm -f conftest conftest-e
+    AC_SUBST([SED_I])
+
     # Making the top-level README requires w3m or lynx.
     AC_ARG_VAR([W3M], [Location of the w3m program (required to building the top-level hwloc README file)])
     AC_PATH_TOOL([W3M], [w3m])
@@ -143,8 +174,8 @@ EOF
     # specifically disabled by the user.
     AC_MSG_CHECKING([whether to enable "picky" compiler mode])
     hwloc_want_picky=0
-    AS_IF([test "$GCC" = "yes"],
-          [AS_IF([test -d "$srcdir/.svn" -o -d "$srcdir/.hg"],
+    AS_IF([test "$hwloc_c_vendor" = "gnu"],
+          [AS_IF([test -d "$srcdir/.svn" -o -d "$srcdir/.hg" -o -d "$srcdir/.git"],
                  [hwloc_want_picky=1])])
     if test "$enable_picky" = "yes"; then
         if test "$GCC" = "yes"; then
@@ -193,9 +224,12 @@ EOF
     hwloc_build_utils=yes
 
     # Cairo support
+    hwloc_cairo_happy=no
     if test "x$enable_cairo" != "xno"; then
-      HWLOC_PKG_CHECK_MODULES([CAIRO], [cairo], [cairo_fill], [:], [enable_cairo=no])
-      if test "x$enable_cairo" != "xno"; then
+      HWLOC_PKG_CHECK_MODULES([CAIRO], [cairo], [cairo_fill],
+                              [hwloc_cairo_happy=yes],
+                              [hwloc_cairo_happy=no])
+      if test "x$hwloc_cairo_happy" = "xyes"; then
         AC_PATH_XTRA
 	CFLAGS_save=$CFLAGS
 	LIBS_save=$LIBS
@@ -214,6 +248,7 @@ EOF
         )
         if test "x$enable_X11" != "xyes"; then
           AC_MSG_WARN([X11 headers not found, Cairo/X11 back-end disabled])
+          hwloc_cairo_happy=no
         fi
 
 	CFLAGS=$CFLAGS_save
@@ -221,35 +256,60 @@ EOF
       fi
     fi
     
-    if test "x$enable_cairo" != "xno"; then
+    if test "x$hwloc_cairo_happy" = "xyes"; then
         AC_DEFINE([HWLOC_HAVE_CAIRO], [1], [Define to 1 if you have the `cairo' library.])
+    else
+        AS_IF([test "$enable_cairo" = "yes"],
+              [AC_MSG_WARN([--enable-cairo requested, but Cairo/X11 support was not found])
+               AC_MSG_ERROR([Cannot continue])])
     fi
 
     AC_CHECK_TYPES([wchar_t], [
       AC_CHECK_FUNCS([putwc])
     ], [], [[#include <wchar.h>]])
 
-    AC_CHECK_HEADERS([locale.h], [
+    HWLOC_XML_LOCALIZED=1
+    AC_CHECK_HEADERS([locale.h xlocale.h], [
       AC_CHECK_FUNCS([setlocale])
+      AC_CHECK_FUNCS([uselocale], [HWLOC_XML_LOCALIZED=0])
     ])
+    AC_SUBST([HWLOC_XML_LOCALIZED])
     AC_CHECK_HEADERS([langinfo.h], [
       AC_CHECK_FUNCS([nl_langinfo])
     ])
     hwloc_old_LIBS="$LIBS"
-    LIBS=
-    AC_CHECK_HEADERS([curses.h], [
-      AC_CHECK_HEADERS([term.h], [
-        AC_SEARCH_LIBS([tparm], [termcap ncursesw ncurses curses], [
-            AC_SUBST([HWLOC_TERMCAP_LIBS], ["$LIBS"])
-            AC_DEFINE([HWLOC_HAVE_LIBTERMCAP], [1],
-                      [Define to 1 if you have a library providing the termcap interface])
-          ])
-      ], [], [[#include <curses.h>]])
-    ])
+    chosen_curses=""
+    for curses in ncurses curses
+    do
+      for lib in "" -ltermcap -l${curses}w -l$curses
+      do
+        AC_MSG_CHECKING(termcap support using $curses and $lib)
+        LIBS="$hwloc_old_LIBS $lib"
+        AC_LINK_IFELSE([AC_LANG_PROGRAM([[
+#include <$curses.h>
+#include <term.h>
+]], [[tparm(NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0)]])], [
+          AC_MSG_RESULT(yes)
+          AC_SUBST([HWLOC_TERMCAP_LIBS], ["$LIBS"])
+          AC_DEFINE([HWLOC_HAVE_LIBTERMCAP], [1],
+                    [Define to 1 if you have a library providing the termcap interface])
+          chosen_curses=$curses
+        ], [
+          AC_MSG_RESULT(no)
+        ])
+        test "x$chosen_curses" != "x" && break
+      done
+      test "x$chosen_curses" != "x" && break
+    done
+    if test "$chosen_curses" = ncurses
+    then
+      AC_DEFINE([HWLOC_USE_NCURSES], [1], [Define to 1 if ncurses works, preferred over curses])
+    fi
     LIBS="$hwloc_old_LIBS"
     unset hwloc_old_LIBS
 
     _HWLOC_CHECK_DIFF_U
+    _HWLOC_CHECK_DIFF_W
 
     # Only generate this if we're building the utilities
     AC_CONFIG_FILES(
@@ -269,6 +329,8 @@ AC_DEFUN([HWLOC_SETUP_TESTS],[
 EOF
 
     hwloc_build_tests=yes
+
+    AC_CHECK_LIB([pthread], [pthread_self], [hwloc_have_pthread=yes])
 
     # linux-libnuma.h testing requires libnuma with numa_bitmask_alloc()
     AC_CHECK_DECL([numa_bitmask_alloc], [hwloc_have_linux_libnuma=yes], [],
@@ -320,9 +382,7 @@ EOF
 		      hwloc_have_cudart=yes])],
        [AC_MSG_RESULT(no)])])
 
-    if test "x$enable_xml" != "xno"; then
-        AC_CHECK_PROGS(XMLLINT, [xmllint])
-    fi
+    AC_CHECK_PROGS(XMLLINT, [xmllint])
 
     AC_CHECK_PROGS(BUNZIPP, bunzip2, false)
 
@@ -335,13 +395,19 @@ EOF
         hwloc_config_prefix[tests/linux/gather/Makefile]
         hwloc_config_prefix[tests/xml/Makefile]
         hwloc_config_prefix[tests/ports/Makefile]
-        hwloc_config_prefix[tests/linux/hwloc-gather-topology.sh]
+        hwloc_config_prefix[tests/rename/Makefile]
+        hwloc_config_prefix[tests/linux/hwloc-gather-topology]
         hwloc_config_prefix[tests/linux/gather/test-gather-topology.sh]
         hwloc_config_prefix[tests/linux/test-topology.sh]
         hwloc_config_prefix[tests/xml/test-topology.sh]
-        hwloc_config_prefix[utils/test-hwloc-distrib.sh])
+        hwloc_config_prefix[utils/hwloc-assembler-remote]
+        hwloc_config_prefix[utils/test-hwloc-assembler.sh]
+        hwloc_config_prefix[utils/test-hwloc-calc.sh]
+        hwloc_config_prefix[utils/test-hwloc-distances.sh]
+        hwloc_config_prefix[utils/test-hwloc-distrib.sh]
+        hwloc_config_prefix[utils/test-hwloc-ls.sh])
 
-    AC_CONFIG_COMMANDS([chmoding-scripts], [chmod +x ]hwloc_config_prefix[tests/linux/test-topology.sh ]hwloc_config_prefix[tests/xml/test-topology.sh ]hwloc_config_prefix[tests/linux/hwloc-gather-topology.sh ]hwloc_config_prefix[tests/linux/gather/test-gather-topology.sh ]hwloc_config_prefix[utils/test-hwloc-distrib.sh])
+    AC_CONFIG_COMMANDS([chmoding-scripts], [chmod +x ]hwloc_config_prefix[tests/linux/test-topology.sh ]hwloc_config_prefix[tests/xml/test-topology.sh ]hwloc_config_prefix[tests/linux/hwloc-gather-topology ]hwloc_config_prefix[tests/linux/gather/test-gather-topology.sh ]hwloc_config_prefix[utils/hwloc-assembler-remote ]hwloc_config_prefix[utils/test-hwloc-assembler.sh ]hwloc_config_prefix[utils/test-hwloc-calc.sh ]hwloc_config_prefix[utils/test-hwloc-distances.sh ]hwloc_config_prefix[utils/test-hwloc-distrib.sh ]hwloc_config_prefix[utils/test-hwloc-ls.sh])
 
     # These links are only needed in standalone mode.  It would
     # be nice to m4 foreach this somehow, but whenever I tried
@@ -350,10 +416,8 @@ EOF
     # built in standalone mode, only generate them in
     # standalone mode.
     AC_CONFIG_LINKS(
-        hwloc_config_prefix[tests/ports/topology.c]:hwloc_config_prefix[src/topology.c]
-	hwloc_config_prefix[tests/ports/traversal.c]:hwloc_config_prefix[src/traversal.c]
-	hwloc_config_prefix[tests/ports/topology-synthetic.c]:hwloc_config_prefix[src/topology-synthetic.c]
 	hwloc_config_prefix[tests/ports/topology-solaris.c]:hwloc_config_prefix[src/topology-solaris.c]
+	hwloc_config_prefix[tests/ports/topology-solaris-chiptype.c]:hwloc_config_prefix[src/topology-solaris-chiptype.c]
 	hwloc_config_prefix[tests/ports/topology-aix.c]:hwloc_config_prefix[src/topology-aix.c]
 	hwloc_config_prefix[tests/ports/topology-osf.c]:hwloc_config_prefix[src/topology-osf.c]
 	hwloc_config_prefix[tests/ports/topology-windows.c]:hwloc_config_prefix[src/topology-windows.c]

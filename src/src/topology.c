@@ -1,24 +1,29 @@
 /*
  * Copyright © 2009 CNRS
- * Copyright © 2009-2010 INRIA
- * Copyright © 2009-2010 Université Bordeaux 1
- * Copyright © 2009-2010 Cisco Systems, Inc.  All rights reserved.
+ * Copyright © 2009-2012 inria.  All rights reserved.
+ * Copyright © 2009-2012 Université Bordeaux 1
+ * Copyright © 2009-2011 Cisco Systems, Inc.  All rights reserved.
  * See COPYING in top-level directory.
  */
 
-#include <private/config.h>
+#include <private/autogen/config.h>
 
 #define _ATFILE_SOURCE
 #include <assert.h>
 #include <sys/types.h>
+#ifdef HAVE_DIRENT_H
 #include <dirent.h>
+#endif
+#ifdef HAVE_UNISTD_H
 #include <unistd.h>
+#endif
 #include <string.h>
 #include <errno.h>
 #include <stdio.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <float.h>
 
 #include <hwloc.h>
 #include <private/private.h>
@@ -43,8 +48,47 @@
 #include <windows.h>
 #endif
 
+unsigned hwloc_get_api_version(void)
+{
+  return HWLOC_API_VERSION;
+}
+
+int hwloc_hide_errors(void)
+{
+  static int hide = 0;
+  static int checked = 0;
+  if (!checked) {
+    const char *envvar = getenv("HWLOC_HIDE_ERRORS");
+    if (envvar)
+      hide = atoi(envvar);
+    checked = 1;
+  }
+  return hide;
+}
+
+void hwloc_report_os_error(const char *msg, int line)
+{
+    static int reported = 0;
+
+    if (!reported && !hwloc_hide_errors()) {
+        fprintf(stderr, "****************************************************************************\n");
+        fprintf(stderr, "* Hwloc has encountered what looks like an error from the operating system.\n");
+        fprintf(stderr, "*\n");
+        fprintf(stderr, "* %s\n", msg);
+        fprintf(stderr, "* Error occurred in topology.c line %d\n", line);
+        fprintf(stderr, "*\n");
+        fprintf(stderr, "* Please report this error message to the hwloc user's mailing list,\n");
+        fprintf(stderr, "* along with the output from the hwloc-gather-topology.sh script.\n");
+        fprintf(stderr, "****************************************************************************\n");
+        reported = 1;
+    }
+}
+
 static void
 hwloc_topology_clear (struct hwloc_topology *topology);
+static void
+hwloc_topology_setup_defaults(struct hwloc_topology *topology);
+
 
 #if defined(HAVE_SYSCTLBYNAME)
 int hwloc_get_sysctlbyname(const char *name, int64_t *ret)
@@ -131,215 +175,6 @@ hwloc_fallback_nbprocessors(struct hwloc_topology *topology) {
 }
 
 /*
- * Place objects in groups if they are in a transitive graph of minimal distances.
- * Return how many groups were created, or 0 if some incomplete distance graphs were found.
- */
-static unsigned
-hwloc_setup_group_from_min_distance(unsigned nbobjs,
-				    unsigned *_distances,
-				    unsigned *groupids)
-{
-  unsigned (*distances)[nbobjs][nbobjs] = (unsigned (*)[nbobjs][nbobjs])_distances;
-  unsigned min_distance = UINT_MAX;
-  unsigned groupid = 1;
-  unsigned i,j,k;
-
-  memset(groupids, 0, nbobjs*sizeof(*groupids));
-
-  /* find the minimal distance */
-  for(i=0; i<nbobjs; i++)
-    for(j=i+1; j<nbobjs; j++)
-      if ((*distances)[i][j] < min_distance)
-	min_distance = (*distances)[i][j];
-  hwloc_debug("found minimal distance %u between objects\n", min_distance);
-
-  if (min_distance == UINT_MAX)
-    return 0;
-
-  /* build groups of objects connected with this distance */
-  for(i=0; i<nbobjs; i++) {
-    unsigned size;
-    int firstfound;
-
-    /* if already grouped, skip */
-    if (groupids[i])
-      continue;
-
-    /* start a new group */
-    groupids[i] = groupid;
-    size = 1;
-    firstfound = i;
-
-    while (firstfound != -1) {
-      /* we added new objects to the group, the first one was firstfound.
-       * rescan all connections from these new objects (starting at first found) to any other objects,
-       * so as to find new objects minimally-connected by transivity.
-       */
-      int newfirstfound = -1;
-      for(j=firstfound; j<nbobjs; j++)
-	if (groupids[j] == groupid)
-	  for(k=0; k<nbobjs; k++)
-	    if (!groupids[k] && (*distances)[j][k] == min_distance) {
-	      groupids[k] = groupid;
-	      size++;
-	      if (newfirstfound == -1)
-		newfirstfound = k;
-	      if (i == j)
-		hwloc_debug("object %u is minimally connected to %u\n", k, i);
-	      else
-	        hwloc_debug("object %u is minimally connected to %u through %u\n", k, i, j);
-	    }
-      firstfound = newfirstfound;
-    }
-
-    if (size == 1) {
-      /* cancel this group and start over */
-      groupids[i] = 0;
-      continue;
-    }
-
-    /* valid this group */
-    groupid++;
-    hwloc_debug("found transitive graph with %u objects with minimal distance %u\n",
-	       size, min_distance);
-  }
-
-  /* return the last id, since it's also the number of used group ids */
-  return groupid-1;
-}
-
-/*
- * Look at object physical distances to group them,
- * after having done some basic sanity checks.
- */
-static void
-hwloc__setup_misc_level_from_distances(struct hwloc_topology *topology,
-				      unsigned nbobjs,
-				      struct hwloc_obj **objs,
-				      unsigned *_distances,
-				      int depth)
-{
-  unsigned (*distances)[nbobjs][nbobjs] = (unsigned (*)[nbobjs][nbobjs])_distances;
-  unsigned groupids[nbobjs];
-  unsigned nbgroups;
-  unsigned i,j;
-
-  hwloc_debug("trying to group %s objects into misc objects according to physical distances\n",
-	     hwloc_obj_type_string(objs[0]->type));
-
-  if (nbobjs <= 2)
-    return;
-
-  nbgroups = hwloc_setup_group_from_min_distance(nbobjs, _distances, groupids);
-  if (!nbgroups)
-    return;
-
-  if (nbgroups == 1) {
-    hwloc_debug("%s", "ignoring misc object with all objects\n");
-    return;
-  }
-
-  /* For convenience, put these declarations inside a block.  Saves us
-     from a bunch of mallocs, particularly with the 2D array. */
-  {
-      hwloc_obj_t groupobjs[nbgroups];
-      unsigned groupsizes[nbgroups];
-      unsigned groupdistances[nbgroups][nbgroups];
-      /* create new misc objects and record their size */
-      memset(groupsizes, 0, sizeof(groupsizes));
-      for(i=0; i<nbgroups; i++) {
-          /* create the misc object */
-          hwloc_obj_t misc_obj;
-          misc_obj = hwloc_alloc_setup_object(HWLOC_OBJ_GROUP, -1);
-          misc_obj->cpuset = hwloc_bitmap_alloc();
-          hwloc_bitmap_zero(misc_obj->cpuset);
-          misc_obj->attr->group.depth = depth;
-          for (j=0; j<nbobjs; j++)
-              if (groupids[j] == i+1) {
-                  hwloc_bitmap_or(misc_obj->cpuset, misc_obj->cpuset, objs[j]->cpuset);
-                  groupsizes[i]++;
-              }
-          hwloc_debug_1arg_bitmap("adding misc object with %u objects and cpuset %s\n",
-                                  groupsizes[i], misc_obj->cpuset);
-          hwloc_insert_object_by_cpuset(topology, misc_obj);
-          groupobjs[i] = misc_obj;
-      }
-      
-      /* factorize distances */
-      memset(groupdistances, 0, sizeof(groupdistances));
-      for(i=0; i<nbobjs; i++)
-          for(j=0; j<nbobjs; j++)
-              groupdistances[groupids[i]-1][groupids[j]-1] += (*distances)[i][j];
-      for(i=0; i<nbgroups; i++)
-          for(j=0; j<nbgroups; j++)
-              groupdistances[i][j] /= groupsizes[i]*groupsizes[j];
-#ifdef HWLOC_DEBUG
-      hwloc_debug("%s", "group distances:\n");
-      for(i=0; i<nbgroups; i++) {
-          for(j=0; j<nbgroups; j++)
-              hwloc_debug("%u ", groupdistances[i][j]);
-          hwloc_debug("%s", "\n");
-      }
-#endif
-      
-      hwloc__setup_misc_level_from_distances(topology, nbgroups, groupobjs, (unsigned*) groupdistances, depth + 1);
-  }
-}
-
-/*
- * Look at object physical distances to group them.
- */
-void
-hwloc_setup_misc_level_from_distances(struct hwloc_topology *topology,
-				      unsigned nbobjs,
-				      struct hwloc_obj **objs,
-				      unsigned *_distances,
-				      unsigned *_distance_indexes)
-{
-  unsigned (*distances)[nbobjs][nbobjs] = (unsigned (*)[nbobjs][nbobjs])_distances;
-  unsigned (*distance_indexes)[nbobjs] __hwloc_attribute_unused = (unsigned (*)[nbobjs])_distance_indexes;
-  unsigned i,j;
-
-  if (getenv("HWLOC_IGNORE_DISTANCES"))
-    return;
-
-#ifdef HWLOC_DEBUG
-  hwloc_debug("%s", "node distance matrix:\n");
-  hwloc_debug("%s", "   ");
-  for(j=0; j<nbobjs; j++)
-    hwloc_debug(" %3u", (*distance_indexes)[j]);
-  hwloc_debug("%s", "\n");
-
-  for(i=0; i<nbobjs; i++) {
-    hwloc_debug("%3u", (*distance_indexes)[i]);
-    for(j=0; j<nbobjs; j++)
-      hwloc_debug(" %3u", (*distances)[i][j]);
-    hwloc_debug("%s", "\n");
-  }
-#endif
-
-  /* check that the matrix is ok */
-  for(i=0; i<nbobjs; i++) {
-    for(j=i+1; j<nbobjs; j++) {
-      /* should be symmetric */
-      if ((*distances)[i][j] != (*distances)[j][i]) {
-	hwloc_debug("distance matrix asymmetric ([%u,%u]=%u != [%u,%u]=%u), aborting\n",
-		   i, j, (*distances)[i][j], j, i, (*distances)[j][i]);
-	return;
-      }
-      /* diagonal is smaller than everything else */
-      if ((*distances)[i][j] <= (*distances)[i][i]) {
-	hwloc_debug("distance to self not strictly minimal ([%u,%u]=%u <= [%u,%u]=%u), aborting\n",
-		   i, j, (*distances)[i][j], i, i, (*distances)[i][i]);
-	return;
-      }
-    }
-  }
-
-  hwloc__setup_misc_level_from_distances(topology, nbobjs, objs, _distances, 0);
-}
-
-/*
  * Use the given number of processors and the optional online cpuset if given
  * to set a PU level.
  */
@@ -372,6 +207,8 @@ print_object(struct hwloc_topology *topology, int indent __hwloc_attribute_unuse
   hwloc_debug("%*s", 2*indent, "");
   hwloc_obj_snprintf(line, sizeof(line), topology, obj, "#", 1);
   hwloc_debug("%s", line);
+  if (obj->name)
+    hwloc_debug(" name %s", obj->name);
   if (obj->cpuset) {
     hwloc_bitmap_asprintf(&cpuset, obj->cpuset);
     hwloc_debug(" cpuset %s", cpuset);
@@ -423,8 +260,7 @@ print_objects(struct hwloc_topology *topology __hwloc_attribute_unused, int inde
 #endif
 }
 
-void
-hwloc_add_object_info(hwloc_obj_t obj, const char *name, const char *value)
+void hwloc_obj_add_info(hwloc_obj_t obj, const char *name, const char *value)
 {
 #define OBJECT_INFO_ALLOC 8
   /* nothing allocated initially, (re-)allocate by multiple of 8 */
@@ -438,7 +274,7 @@ hwloc_add_object_info(hwloc_obj_t obj, const char *name, const char *value)
 
 /* Free an object and all its content.  */
 void
-hwloc_free_object(hwloc_obj_t obj)
+hwloc_free_unlinked_object(hwloc_obj_t obj)
 {
   unsigned i;
   switch (obj->type) {
@@ -450,6 +286,7 @@ hwloc_free_object(hwloc_obj_t obj)
     free(obj->infos[i].value);
   }
   free(obj->infos);
+  hwloc_clear_object_distances(obj);
   free(obj->memory.page_types);
   free(obj->attr);
   free(obj->children);
@@ -462,6 +299,57 @@ hwloc_free_object(hwloc_obj_t obj)
   hwloc_bitmap_free(obj->complete_nodeset);
   hwloc_bitmap_free(obj->allowed_nodeset);
   free(obj);
+}
+
+static void
+hwloc__duplicate_objects(struct hwloc_topology *newtopology,
+			 struct hwloc_obj *newparent,
+			 struct hwloc_obj *src)
+{
+  hwloc_obj_t newobj;
+  hwloc_obj_t child;
+  size_t len;
+  unsigned i;
+
+  newobj = hwloc_alloc_setup_object(src->type, src->os_index);
+  if (src->name)
+    newobj->name = strdup(src->name);
+  newobj->userdata = src->userdata;
+
+  memcpy(&newobj->memory, &src->memory, sizeof(struct hwloc_obj_memory_s));
+  if (src->memory.page_types_len) {
+    len = src->memory.page_types_len * sizeof(struct hwloc_obj_memory_page_type_s);
+    newobj->memory.page_types = malloc(len);
+    memcpy(newobj->memory.page_types, src->memory.page_types, len);
+  }
+
+  memcpy(newobj->attr, src->attr, sizeof(*newobj->attr));
+
+  newobj->cpuset = hwloc_bitmap_dup(src->cpuset);
+  newobj->nodeset = hwloc_bitmap_dup(src->nodeset);
+
+  if (src->distances_count) {
+    newobj->distances_count = src->distances_count;
+    newobj->distances = malloc(src->distances_count * sizeof(struct hwloc_distances_s *));
+    for(i=0; i<src->distances_count; i++) {
+      newobj->distances[i] = malloc(sizeof(struct hwloc_distances_s));
+      /* ugly copy first */
+      memcpy(newobj->distances[i], src->distances[i], sizeof(struct hwloc_distances_s));
+      /* now duplicate matrices for real */
+      len = src->distances[i]->nbobjs * src->distances[i]->nbobjs * sizeof(float);
+      newobj->distances[i]->latency = malloc(len);
+      memcpy(newobj->distances[i]->latency, src->distances[i]->latency, len);
+    }
+  }
+
+  for(i=0; i<src->infos_count; i++)
+    hwloc_obj_add_info(newobj, src->infos[i].name, src->infos[i].value);
+
+  child = NULL;
+  while ((child = hwloc_get_next_child(newtopology, src, child)) != NULL)
+    hwloc__duplicate_objects(newtopology, newobj, child);
+
+  hwloc_insert_object_by_parent(newtopology, newparent, newobj);
 }
 
 /*
@@ -478,28 +366,55 @@ enum hwloc_type_cmp_e {
   HWLOC_TYPE_EQUAL
 };
 
-static const unsigned obj_type_order[] = {
-  [HWLOC_OBJ_SYSTEM] = 0,
-  [HWLOC_OBJ_MACHINE] = 1,
-  [HWLOC_OBJ_GROUP] = 2,
-  [HWLOC_OBJ_NODE] = 3,
-  [HWLOC_OBJ_SOCKET] = 4,
-  [HWLOC_OBJ_CACHE] = 5,
-  [HWLOC_OBJ_CORE] = 6,
-  [HWLOC_OBJ_PU] = 7,
-  [HWLOC_OBJ_MISC] = 8,
+/* WARNING: The indexes of this array MUST match the ordering that of
+   the obj_order_type[] array, below.  Specifically, the values must
+   be laid out such that:
+
+       obj_order_type[obj_type_order[N]] = N
+
+   for all HWLOC_OBJ_* values of N.  Put differently:
+
+       obj_type_order[A] = B
+
+   where the A values are in order of the hwloc_obj_type_t enum, and
+   the B values are the corresponding indexes of obj_order_type.
+
+   We can't use C99 syntax to initialize this in a little safer manner
+   -- bummer.  :-(
+
+   *************************************************************
+   *** DO NOT CHANGE THE ORDERING OF THIS ARRAY WITHOUT TRIPLE
+   *** CHECKING ITS CORRECTNESS!
+   *************************************************************
+   */
+static unsigned obj_type_order[] = {
+    /* first entry is HWLOC_OBJ_SYSTEM */  0,
+    /* next entry is HWLOC_OBJ_MACHINE */  1,
+    /* next entry is HWLOC_OBJ_NODE */     3,
+    /* next entry is HWLOC_OBJ_SOCKET */   4,
+    /* next entry is HWLOC_OBJ_CACHE */    5,
+    /* next entry is HWLOC_OBJ_CORE */     6,
+    /* next entry is HWLOC_OBJ_PU */       10,
+    /* next entry is HWLOC_OBJ_GROUP */    2,
+    /* next entry is HWLOC_OBJ_MISC */     11,
+    /* next entry is HWLOC_OBJ_BRIDGE */   7,
+    /* next entry is HWLOC_OBJ_PCI_DEVICE */  8,
+    /* next entry is HWLOC_OBJ_OS_DEVICE */   9
 };
 
 static const hwloc_obj_type_t obj_order_type[] = {
-  [0] = HWLOC_OBJ_SYSTEM,
-  [1] = HWLOC_OBJ_MACHINE,
-  [2] = HWLOC_OBJ_GROUP,
-  [3] = HWLOC_OBJ_NODE,
-  [4] = HWLOC_OBJ_SOCKET,
-  [5] = HWLOC_OBJ_CACHE,
-  [6] = HWLOC_OBJ_CORE,
-  [7] = HWLOC_OBJ_PU,
-  [8] = HWLOC_OBJ_MISC
+  HWLOC_OBJ_SYSTEM,
+  HWLOC_OBJ_MACHINE,
+  HWLOC_OBJ_GROUP,
+  HWLOC_OBJ_NODE,
+  HWLOC_OBJ_SOCKET,
+  HWLOC_OBJ_CACHE,
+  HWLOC_OBJ_CORE,
+  HWLOC_OBJ_BRIDGE,
+  HWLOC_OBJ_PCI_DEVICE,
+  HWLOC_OBJ_OS_DEVICE,
+  HWLOC_OBJ_PU,
+  HWLOC_OBJ_MISC,
 };
 
 static unsigned __hwloc_attribute_const
@@ -515,10 +430,24 @@ static hwloc_obj_type_t hwloc_get_order_type(int order)
 }
 #endif
 
+static int hwloc_obj_type_is_io (hwloc_obj_type_t type)
+{
+  return type == HWLOC_OBJ_BRIDGE || type == HWLOC_OBJ_PCI_DEVICE || type == HWLOC_OBJ_OS_DEVICE;
+}
+
 int hwloc_compare_types (hwloc_obj_type_t type1, hwloc_obj_type_t type2)
 {
   unsigned order1 = hwloc_get_type_order(type1);
   unsigned order2 = hwloc_get_type_order(type2);
+
+  /* bridge and devices are only comparable with each others and with machine and system */
+  if (hwloc_obj_type_is_io(type1)
+      && !hwloc_obj_type_is_io(type2) && type2 != HWLOC_OBJ_SYSTEM && type2 != HWLOC_OBJ_MACHINE)
+    return HWLOC_TYPE_UNORDERED;
+  if (hwloc_obj_type_is_io(type2)
+      && !hwloc_obj_type_is_io(type1) && type1 != HWLOC_OBJ_SYSTEM && type1 != HWLOC_OBJ_MACHINE)
+    return HWLOC_TYPE_UNORDERED;
+
   return order1 - order2;
 }
 
@@ -536,6 +465,12 @@ hwloc_type_cmp(hwloc_obj_t obj1, hwloc_obj_t obj2)
       return HWLOC_TYPE_DEEPER;
     else if (obj1->attr->cache.depth > obj2->attr->cache.depth)
       return HWLOC_TYPE_HIGHER;
+    else if (obj1->attr->cache.type > obj2->attr->cache.type)
+      /* consider icache deeper than dcache and dcache deeper than unified */
+      return HWLOC_TYPE_DEEPER;
+    else if (obj1->attr->cache.type < obj2->attr->cache.type)
+      /* consider icache deeper than dcache and dcache deeper than unified */
+      return HWLOC_TYPE_HIGHER;
   }
 
   /* Group objects have the same types but can have different depths.  */
@@ -543,6 +478,14 @@ hwloc_type_cmp(hwloc_obj_t obj1, hwloc_obj_t obj2)
     if (obj1->attr->group.depth < obj2->attr->group.depth)
       return HWLOC_TYPE_DEEPER;
     else if (obj1->attr->group.depth > obj2->attr->group.depth)
+      return HWLOC_TYPE_HIGHER;
+  }
+
+  /* Bridges objects have the same types but can have different depths.  */
+  if (obj1->type == HWLOC_OBJ_BRIDGE) {
+    if (obj1->attr->bridge.depth < obj2->attr->bridge.depth)
+      return HWLOC_TYPE_DEEPER;
+    else if (obj1->attr->bridge.depth > obj2->attr->bridge.depth)
       return HWLOC_TYPE_HIGHER;
   }
 
@@ -564,13 +507,24 @@ enum hwloc_obj_cmp_e {
 static int
 hwloc_obj_cmp(hwloc_obj_t obj1, hwloc_obj_t obj2)
 {
-  if (!obj1->cpuset || hwloc_bitmap_iszero(obj1->cpuset)
-      || !obj2->cpuset || hwloc_bitmap_iszero(obj2->cpuset))
+  hwloc_bitmap_t set1, set2;
+
+  /* compare cpusets if possible, or fallback to nodeset, or return */
+  if (obj1->cpuset && !hwloc_bitmap_iszero(obj1->cpuset)
+      && obj2->cpuset && !hwloc_bitmap_iszero(obj2->cpuset)) {
+    set1 = obj1->cpuset;
+    set2 = obj2->cpuset;
+  } else if (obj1->nodeset && !hwloc_bitmap_iszero(obj1->nodeset)
+	     && obj2->nodeset && !hwloc_bitmap_iszero(obj2->nodeset)) {
+    set1 = obj1->nodeset;
+    set2 = obj2->nodeset;
+  } else {
     return HWLOC_OBJ_DIFFERENT;
+  }
 
-  if (hwloc_bitmap_isequal(obj1->cpuset, obj2->cpuset)) {
+  if (hwloc_bitmap_isequal(set1, set2)) {
 
-    /* Same cpuset, subsort by type to have a consistent ordering.  */
+    /* Same sets, subsort by type to have a consistent ordering.  */
 
     switch (hwloc_type_cmp(obj1, obj2)) {
       case HWLOC_TYPE_DEEPER:
@@ -590,7 +544,7 @@ hwloc_obj_cmp(hwloc_obj_t obj1, hwloc_obj_t obj2)
             return HWLOC_OBJ_EQUAL;
         }
 
-	/* Same level cpuset and type!  Let's hope it's coherent.  */
+	/* Same sets and types!  Let's hope it's coherent.  */
 	return HWLOC_OBJ_EQUAL;
     }
 
@@ -599,19 +553,43 @@ hwloc_obj_cmp(hwloc_obj_t obj1, hwloc_obj_t obj2)
 
   } else {
 
-    /* Different cpusets, sort by inclusion.  */
+    /* Different sets, sort by inclusion.  */
 
-    if (hwloc_bitmap_isincluded(obj1->cpuset, obj2->cpuset))
+    if (hwloc_bitmap_isincluded(set1, set2))
       return HWLOC_OBJ_INCLUDED;
 
-    if (hwloc_bitmap_isincluded(obj2->cpuset, obj1->cpuset))
+    if (hwloc_bitmap_isincluded(set2, set1))
       return HWLOC_OBJ_CONTAINS;
 
-    if (hwloc_bitmap_intersects(obj1->cpuset, obj2->cpuset))
+    if (hwloc_bitmap_intersects(set1, set2))
       return HWLOC_OBJ_INTERSECTS;
 
     return HWLOC_OBJ_DIFFERENT;
   }
+}
+
+/* format must contain a single %s where to print obj infos */
+static void
+hwloc___insert_object_by_cpuset_report_error(hwloc_report_error_t report_error, const char *fmt, hwloc_obj_t obj, int line)
+{
+	char typestr[64];
+	char objstr[512];
+	char msg[640];
+	char *cpusetstr;
+
+	hwloc_obj_type_snprintf(typestr, sizeof(typestr), obj, 0);
+	hwloc_bitmap_asprintf(&cpusetstr, obj->cpuset);
+	if (obj->os_index != (unsigned) -1)
+	  snprintf(objstr, sizeof(objstr), "%s P#%u cpuset %s",
+		   typestr, obj->os_index, cpusetstr);
+	else
+	  snprintf(objstr, sizeof(objstr), "%s cpuset %s",
+		   typestr, cpusetstr);
+	free(cpusetstr);
+
+	snprintf(msg, sizeof(msg), fmt,
+		 objstr);
+	report_error(msg, line);
 }
 
 /*
@@ -637,8 +615,9 @@ hwloc_obj_cmp(hwloc_obj_t obj1, hwloc_obj_t obj2)
 #endif
 
 /* Try to insert OBJ in CUR, recurse if needed */
-static void
-hwloc__insert_object_by_cpuset(struct hwloc_topology *topology, hwloc_obj_t cur, hwloc_obj_t obj)
+static int
+hwloc___insert_object_by_cpuset(struct hwloc_topology *topology, hwloc_obj_t cur, hwloc_obj_t obj,
+			        hwloc_report_error_t report_error)
 {
   hwloc_obj_t child, container, *cur_children, *obj_children, next_child = NULL;
   int put;
@@ -646,7 +625,7 @@ hwloc__insert_object_by_cpuset(struct hwloc_topology *topology, hwloc_obj_t cur,
   /* Make sure we haven't gone too deep.  */
   if (!hwloc_bitmap_isincluded(obj->cpuset, cur->cpuset)) {
     fprintf(stderr,"recursion has gone too deep?!\n");
-    return;
+    return -1;
   }
 
   /* Check whether OBJ is included in some child.  */
@@ -657,13 +636,44 @@ hwloc__insert_object_by_cpuset(struct hwloc_topology *topology, hwloc_obj_t cur,
         merge_index(obj, child, os_level, signed);
 	if (obj->os_level != child->os_level) {
           fprintf(stderr, "Different OS level\n");
-          return;
+          return -1;
         }
         merge_index(obj, child, os_index, unsigned);
 	if (obj->os_index != child->os_index) {
           fprintf(stderr, "Different OS indexes\n");
-          return;
+          return -1;
         }
+	if (obj->distances_count) {
+	  if (child->distances_count) {
+	    child->distances_count += obj->distances_count;
+	    child->distances = realloc(child->distances, child->distances_count * sizeof(*child->distances));
+	    memcpy(child->distances + obj->distances_count, obj->distances, obj->distances_count * sizeof(*child->distances));
+	  } else {
+	    child->distances_count = obj->distances_count;
+	    child->distances = obj->distances;
+	  }
+	  obj->distances_count = 0;
+	  obj->distances = NULL;
+	}
+	if (obj->infos_count) {
+	  if (child->infos_count) {
+	    child->infos_count += obj->infos_count;
+	    child->infos = realloc(child->infos, child->infos_count * sizeof(*child->infos));
+	    memcpy(child->infos + obj->infos_count, obj->infos, obj->infos_count * sizeof(*child->infos));
+	  } else {
+	    child->infos_count = obj->infos_count;
+	    child->infos = obj->infos;
+	  }
+	  obj->infos_count = 0;
+	  obj->infos = NULL;
+	}
+	if (obj->name) {
+	  if (child->name)
+	    free(child->name);
+	  child->name = obj->name;
+	  obj->name = NULL;
+	}
+	assert(!obj->userdata); /* user could not set userdata here (we're before load() */
 	switch(obj->type) {
 	  case HWLOC_OBJ_NODE:
 	    /* Do not check these, it may change between calls */
@@ -692,22 +702,22 @@ hwloc__insert_object_by_cpuset(struct hwloc_topology *topology, hwloc_obj_t cur,
 	    break;
 	}
 	/* Already present, no need to insert.  */
-	return;
+	return -1;
       case HWLOC_OBJ_INCLUDED:
 	if (container) {
-	  /* TODO: how to report?  */
-	  fprintf(stderr, "object included in several different objects!\n");
+          if (report_error)
+	    hwloc___insert_object_by_cpuset_report_error(report_error, "object (%s) included in several different objects!", obj, __LINE__);
 	  /* We can't handle that.  */
-	  return;
+	  return -1;
 	}
 	/* This child contains OBJ.  */
 	container = child;
 	break;
       case HWLOC_OBJ_INTERSECTS:
-	/* TODO: how to report?  */
-	fprintf(stderr, "object intersection without inclusion!\n");
+        if (report_error)
+          hwloc___insert_object_by_cpuset_report_error(report_error, "object (%s) intersection without inclusion!", obj, __LINE__);
 	/* We can't handle that.  */
-	return;
+	return -1;
       case HWLOC_OBJ_CONTAINS:
 	/* OBJ will be above CHILD.  */
 	break;
@@ -719,8 +729,7 @@ hwloc__insert_object_by_cpuset(struct hwloc_topology *topology, hwloc_obj_t cur,
 
   if (container) {
     /* OBJ is strictly contained is some child of CUR, go deeper.  */
-    hwloc__insert_object_by_cpuset(topology, container, obj);
-    return;
+    return hwloc___insert_object_by_cpuset(topology, container, obj, report_error);
   }
 
   /*
@@ -747,7 +756,7 @@ hwloc__insert_object_by_cpuset(struct hwloc_topology *topology, hwloc_obj_t cur,
 
       case HWLOC_OBJ_DIFFERENT:
 	/* Leave CHILD in CUR.  */
-	if (!put && hwloc_bitmap_compare_first(obj->cpuset, child->cpuset) < 0) {
+	if (!put && (!child->cpuset || hwloc_bitmap_compare_first(obj->cpuset, child->cpuset) < 0)) {
 	  /* Sort children by cpuset: put OBJ before CHILD in CUR's children.  */
 	  *cur_children = obj;
 	  cur_children = &obj->next_sibling;
@@ -781,17 +790,33 @@ hwloc__insert_object_by_cpuset(struct hwloc_topology *topology, hwloc_obj_t cur,
   /* Close children lists.  */
   *obj_children = NULL;
   *cur_children = NULL;
+
+  return 0;
 }
 
-void
-hwloc_insert_object_by_cpuset(struct hwloc_topology *topology, hwloc_obj_t obj)
+/* insertion routine that lets you change the error reporting callback */
+int
+hwloc__insert_object_by_cpuset(struct hwloc_topology *topology, hwloc_obj_t obj,
+			       hwloc_report_error_t report_error)
 {
+  int ret;
   /* Start at the top.  */
   /* Add the cpuset to the top */
   hwloc_bitmap_or(topology->levels[0][0]->complete_cpuset, topology->levels[0][0]->complete_cpuset, obj->cpuset);
   if (obj->nodeset)
     hwloc_bitmap_or(topology->levels[0][0]->complete_nodeset, topology->levels[0][0]->complete_nodeset, obj->nodeset);
-  hwloc__insert_object_by_cpuset(topology, topology->levels[0][0], obj);
+  ret = hwloc___insert_object_by_cpuset(topology, topology->levels[0][0], obj, report_error);
+  if (ret < 0)
+    hwloc_free_unlinked_object(obj);
+  return ret;
+}
+
+/* the default insertion routine warns in case of error.
+ * it's used by most backends */
+void
+hwloc_insert_object_by_cpuset(struct hwloc_topology *topology, hwloc_obj_t obj)
+{
+  hwloc__insert_object_by_cpuset(topology, obj, hwloc_report_os_error);
 }
 
 void
@@ -818,20 +843,68 @@ hwloc_insert_object_by_parent(struct hwloc_topology *topology, hwloc_obj_t paren
   }
 }
 
-static void
-hwloc_connect(hwloc_obj_t parent);
 /* Adds a misc object _after_ detection, and thus has to reconnect all the pointers */
 hwloc_obj_t
 hwloc_topology_insert_misc_object_by_cpuset(struct hwloc_topology *topology, hwloc_const_bitmap_t cpuset, const char *name)
 {
-  hwloc_obj_t obj = hwloc_alloc_setup_object(HWLOC_OBJ_MISC, -1);
-  obj->cpuset = hwloc_bitmap_dup(cpuset);
+  hwloc_obj_t obj, child;
+  int err;
+
+  if (!topology->is_loaded) {
+    errno = EINVAL;
+    return NULL;
+  }
+
+  if (hwloc_bitmap_iszero(cpuset))
+    return NULL;
+  if (!hwloc_bitmap_isincluded(cpuset, hwloc_topology_get_complete_cpuset(topology)))
+    return NULL;
+
+  obj = hwloc_alloc_setup_object(HWLOC_OBJ_MISC, -1);
   if (name)
     obj->name = strdup(name);
 
-  hwloc_insert_object_by_cpuset(topology, obj);
+  /* misc objects go in no level (needed here because level building doesn't see Misc objects inside I/O trees) */
+  obj->depth = (unsigned) HWLOC_TYPE_DEPTH_UNKNOWN;
 
-  hwloc_connect(topology->levels[0][0]);
+  obj->cpuset = hwloc_bitmap_dup(cpuset);
+  /* initialize default cpusets, we'll adjust them later */
+  obj->complete_cpuset = hwloc_bitmap_dup(cpuset);
+  obj->allowed_cpuset = hwloc_bitmap_dup(cpuset);
+  obj->online_cpuset = hwloc_bitmap_dup(cpuset);
+
+  err = hwloc__insert_object_by_cpuset(topology, obj, NULL /* do not show errors on stdout */);
+  if (err < 0)
+    return NULL;
+
+  hwloc_connect_children(topology->levels[0][0]);
+
+  if ((child = obj->first_child) != NULL && child->cpuset) {
+    /* keep the main cpuset untouched, but update other cpusets and nodesets from children */
+    obj->nodeset = hwloc_bitmap_alloc();
+    obj->complete_nodeset = hwloc_bitmap_alloc();
+    obj->allowed_nodeset = hwloc_bitmap_alloc();
+    while (child) {
+      if (child->complete_cpuset)
+	hwloc_bitmap_or(obj->complete_cpuset, obj->complete_cpuset, child->complete_cpuset);
+      if (child->allowed_cpuset)
+	hwloc_bitmap_or(obj->allowed_cpuset, obj->allowed_cpuset, child->allowed_cpuset);
+      if (child->online_cpuset)
+	hwloc_bitmap_or(obj->online_cpuset, obj->online_cpuset, child->online_cpuset);
+      if (child->nodeset)
+	hwloc_bitmap_or(obj->nodeset, obj->nodeset, child->nodeset);
+      if (child->complete_nodeset)
+	hwloc_bitmap_or(obj->complete_nodeset, obj->complete_nodeset, child->complete_nodeset);
+      if (child->allowed_nodeset)
+	hwloc_bitmap_or(obj->allowed_nodeset, obj->allowed_nodeset, child->allowed_nodeset);
+      child = child->next_sibling;
+    }
+  } else {
+    /* copy the parent nodesets */
+    obj->nodeset = hwloc_bitmap_dup(obj->parent->nodeset);
+    obj->complete_nodeset = hwloc_bitmap_dup(obj->parent->complete_nodeset);
+    obj->allowed_nodeset = hwloc_bitmap_dup(obj->parent->allowed_nodeset);
+  }
 
   return obj;
 }
@@ -840,14 +913,38 @@ hwloc_obj_t
 hwloc_topology_insert_misc_object_by_parent(struct hwloc_topology *topology, hwloc_obj_t parent, const char *name)
 {
   hwloc_obj_t obj = hwloc_alloc_setup_object(HWLOC_OBJ_MISC, -1);
-  if (parent->cpuset)
-    obj->cpuset = hwloc_bitmap_dup(parent->cpuset);
   if (name)
     obj->name = strdup(name);
 
+  if (!topology->is_loaded) {
+    hwloc_free_unlinked_object(obj);
+    errno = EINVAL;
+    return NULL;
+  }
+
+  /* misc objects go in no level (needed here because level building doesn't see Misc objects inside I/O trees) */
+  obj->depth = (unsigned) HWLOC_TYPE_DEPTH_UNKNOWN;
+
   hwloc_insert_object_by_parent(topology, parent, obj);
 
-  hwloc_connect(topology->levels[0][0]);
+  hwloc_connect_children(topology->levels[0][0]);
+  /* no need to hwloc_connect_levels() since misc object are not in levels */
+
+  return obj;
+}
+
+hwloc_obj_t
+hwloc_custom_insert_group_object_by_parent(struct hwloc_topology *topology, hwloc_obj_t parent, int groupdepth)
+{
+  hwloc_obj_t obj = hwloc_alloc_setup_object(HWLOC_OBJ_GROUP, -1);
+  obj->attr->group.depth = groupdepth;
+
+  if (topology->backend_type != HWLOC_BACKEND_CUSTOM || topology->is_loaded) {
+    errno = EINVAL;
+    return NULL;
+  }
+
+  hwloc_insert_object_by_parent(topology, parent, obj);
 
   return obj;
 }
@@ -862,12 +959,59 @@ hwloc_topology_insert_misc_object_by_parent(struct hwloc_topology *topology, hwl
        /* Get pointer to next childect.  */ \
         child = *pchild)
 
+/* Append I/O devices below this object to their list */
+static void
+append_iodevs(hwloc_topology_t topology, hwloc_obj_t obj)
+{
+  hwloc_obj_t child, *temp;
+
+  if (obj->type == HWLOC_OBJ_BRIDGE) {
+    obj->depth = HWLOC_TYPE_DEPTH_BRIDGE;
+    /* Insert in the main bridge list */
+    if (topology->first_bridge) {
+      obj->prev_cousin = topology->last_bridge;
+      obj->prev_cousin->next_cousin = obj;
+      topology->last_bridge = obj;
+    } else {
+      topology->first_bridge = topology->last_bridge = obj;
+    }
+  } else if (obj->type == HWLOC_OBJ_PCI_DEVICE) {
+    obj->depth = HWLOC_TYPE_DEPTH_PCI_DEVICE;
+    /* Insert in the main pcidev list */
+    if (topology->first_pcidev) {
+      obj->prev_cousin = topology->last_pcidev;
+      obj->prev_cousin->next_cousin = obj;
+      topology->last_pcidev = obj;
+    } else {
+      topology->first_pcidev = topology->last_pcidev = obj;
+    }
+  } else if (obj->type == HWLOC_OBJ_OS_DEVICE) {
+    obj->depth = HWLOC_TYPE_DEPTH_OS_DEVICE;
+    /* Insert in the main osdev list */
+    if (topology->first_osdev) {
+      obj->prev_cousin = topology->last_osdev;
+      obj->prev_cousin->next_cousin = obj;
+      topology->last_osdev = obj;
+    } else {
+      topology->first_osdev = topology->last_osdev = obj;
+    }
+  }
+
+  for_each_child_safe(child, obj, temp)
+    append_iodevs(topology, child);
+}
+
 static int hwloc_memory_page_type_compare(const void *_a, const void *_b)
 {
   const struct hwloc_obj_memory_page_type_s *a = _a;
   const struct hwloc_obj_memory_page_type_s *b = _b;
   /* consider 0 as larger so that 0-size page_type go to the end */
-  return b->size ? (int)(a->size - b->size) : -1;
+  if (!b->size)
+    return -1;
+  /* don't cast a-b in int since those are ullongs */
+  if (b->size == a->size)
+    return 0;
+  return a->size < b->size ? -1 : 1;
 }
 
 /* Propagate memory counts */
@@ -876,6 +1020,9 @@ propagate_total_memory(hwloc_obj_t obj)
 {
   hwloc_obj_t *temp, child;
   unsigned i;
+
+  /* reset total before counting local and children memory */
+  obj->memory.total_memory = 0;
 
   /* Propagate memory up */
   for_each_child_safe(child, obj, temp) {
@@ -1004,6 +1151,10 @@ add_default_object_sets(hwloc_obj_t obj, int parent_has_sets)
 {
   hwloc_obj_t child, *temp;
 
+  /* I/O devices (and their children) have no sets */
+  if (hwloc_obj_type_is_io(obj->type))
+    return;
+
   if (parent_has_sets || obj->cpuset) {
     /* if the parent has non-NULL sets, or if the object has non-NULL cpusets,
      * it must have non-NULL nodesets
@@ -1057,6 +1208,10 @@ propagate_nodeset(hwloc_obj_t obj, hwloc_obj_t sys)
   }
 
   for_each_child_safe(child, obj, temp) {
+    /* don't propagate nodesets in I/O objects, keep them NULL */
+    if (hwloc_obj_type_is_io(child->type))
+      return;
+
     /* Propagate singleton nodesets down */
     if (parent_weight == 1) {
       if (!child->nodeset)
@@ -1085,6 +1240,10 @@ propagate_nodesets(hwloc_obj_t obj)
   hwloc_obj_t child, *temp;
 
   for_each_child_safe(child, obj, temp) {
+    /* don't propagate nodesets in I/O objects, keep them NULL */
+    if (hwloc_obj_type_is_io(child->type))
+      continue;
+
     if (obj->nodeset) {
       /* Update complete nodesets down */
       if (child->complete_nodeset) {
@@ -1109,9 +1268,8 @@ propagate_nodesets(hwloc_obj_t obj)
       /* Update allowed nodesets up */
       if (child->nodeset && child->allowed_nodeset) {
         hwloc_bitmap_copy(mask, child->nodeset);
-        hwloc_bitmap_not(mask, mask);
-        hwloc_bitmap_or(mask, mask, child->allowed_nodeset);
-        hwloc_bitmap_and(obj->allowed_nodeset, obj->allowed_nodeset, mask);
+        hwloc_bitmap_andnot(mask, mask, child->allowed_nodeset);
+        hwloc_bitmap_andnot(obj->allowed_nodeset, obj->allowed_nodeset, mask);
       }
     }
   }
@@ -1169,8 +1327,13 @@ remove_unused_cpusets(hwloc_obj_t obj)
     remove_unused_cpusets(child);
 }
 
+/* Remove an object from its parent and free it.
+ * Only updates next_sibling/first_child pointers,
+ * so may only be used during early discovery.
+ * Children are inserted where the object was.
+ */
 static void
-drop_object(hwloc_obj_t *pparent)
+unlink_and_free_single_object(hwloc_obj_t *pparent)
 {
   hwloc_obj_t parent = *pparent;
   hwloc_obj_t child = parent->first_child;
@@ -1182,41 +1345,73 @@ drop_object(hwloc_obj_t *pparent)
     child->next_sibling = parent->next_sibling;
   } else
     *pparent = parent->next_sibling;
-  /* Remove ignored object */
-  hwloc_free_object(parent);
+  hwloc_free_unlinked_object(parent);
 }
 
 /* Remove all ignored objects.  */
-static void
+static int
 remove_ignored(hwloc_topology_t topology, hwloc_obj_t *pparent)
 {
   hwloc_obj_t parent = *pparent, child, *pchild;
+  int dropped_children = 0;
+  int dropped = 0;
 
   for_each_child_safe(child, parent, pchild)
-    remove_ignored(topology, pchild);
+    dropped_children += remove_ignored(topology, pchild);
 
-  if (parent != topology->levels[0][0] &&
-      topology->ignored_types[parent->type] == HWLOC_IGNORE_TYPE_ALWAYS) {
+  if ((parent != topology->levels[0][0] &&
+       topology->ignored_types[parent->type] == HWLOC_IGNORE_TYPE_ALWAYS)
+      || (parent->type == HWLOC_OBJ_CACHE && parent->attr->cache.type == HWLOC_OBJ_CACHE_INSTRUCTION
+	  && !(topology->flags & HWLOC_TOPOLOGY_FLAG_ICACHES))) {
     hwloc_debug("%s", "\nDropping ignored object ");
     print_object(topology, 0, parent);
-    drop_object(pparent);
+    unlink_and_free_single_object(pparent);
+    dropped = 1;
+
+  } else if (dropped_children) {
+    /* we keep this object but its children changed, reorder them by cpuset */
+
+    /* move the children list on the side */
+    hwloc_obj_t *prev, children = parent->first_child;
+    parent->first_child = NULL;
+    while (children) {
+      /* dequeue child */
+      child = children;
+      children = child->next_sibling;
+      /* find where to enqueue it */
+      prev = &parent->first_child;
+      while (*prev
+	     && (!child->cpuset || !(*prev)->cpuset
+		 || hwloc_bitmap_compare_first(child->cpuset, (*prev)->cpuset) > 0))
+	prev = &((*prev)->next_sibling);
+      /* enqueue */
+      child->next_sibling = *prev;
+      *prev = child;
+    }
   }
+
+  return dropped;
 }
 
+/* Remove an object and its children from its parent and free them.
+ * Only updates next_sibling/first_child pointers,
+ * so may only be used during early discovery.
+ */
 static void
-do_free_object(hwloc_obj_t *pobj)
+unlink_and_free_object_and_children(hwloc_obj_t *pobj)
 {
   hwloc_obj_t obj = *pobj, child, *pchild;
 
   for_each_child_safe(child, obj, pchild)
-    do_free_object(pchild);
+    unlink_and_free_object_and_children(pchild);
 
   *pobj = obj->next_sibling;
-  hwloc_free_object(obj);
+  hwloc_free_unlinked_object(obj);
 }
 
 /* Remove all children whose cpuset is empty, except NUMA nodes
- * since we want to keep memory information.  */
+ * since we want to keep memory information, and except PCI bridges and devices.
+ */
 static void
 remove_empty(hwloc_topology_t topology, hwloc_obj_t *pobj)
 {
@@ -1226,15 +1421,83 @@ remove_empty(hwloc_topology_t topology, hwloc_obj_t *pobj)
     remove_empty(topology, pchild);
 
   if (obj->type != HWLOC_OBJ_NODE
-      && obj->cpuset
+      && !obj->first_child /* only remove if all children were removed above, so that we don't remove parents of NUMAnode */
+      && !hwloc_obj_type_is_io(obj->type)
+      && obj->cpuset /* don't remove if no cpuset at all, there's likely a good reason why it's different from having an empty cpuset */
       && hwloc_bitmap_iszero(obj->cpuset)) {
     /* Remove empty children */
     hwloc_debug("%s", "\nRemoving empty object ");
     print_object(topology, 0, obj);
-    do_free_object(pobj);
+    unlink_and_free_single_object(pobj);
   }
 }
 
+/* adjust object cpusets according the given droppedcpuset,
+ * drop object whose cpuset becomes empty,
+ * and mark dropped nodes in droppednodeset
+ */
+static void
+restrict_object(hwloc_topology_t topology, unsigned long flags, hwloc_obj_t *pobj, hwloc_const_cpuset_t droppedcpuset, hwloc_nodeset_t droppednodeset, int droppingparent)
+{
+  hwloc_obj_t obj = *pobj, child, *pchild;
+  int dropping;
+  int modified = obj->complete_cpuset && hwloc_bitmap_intersects(obj->complete_cpuset, droppedcpuset);
+
+  hwloc_clear_object_distances(obj);
+
+  if (obj->cpuset)
+    hwloc_bitmap_andnot(obj->cpuset, obj->cpuset, droppedcpuset);
+  if (obj->complete_cpuset)
+    hwloc_bitmap_andnot(obj->complete_cpuset, obj->complete_cpuset, droppedcpuset);
+  if (obj->online_cpuset)
+    hwloc_bitmap_andnot(obj->online_cpuset, obj->online_cpuset, droppedcpuset);
+  if (obj->allowed_cpuset)
+    hwloc_bitmap_andnot(obj->allowed_cpuset, obj->allowed_cpuset, droppedcpuset);
+
+  if (obj->type == HWLOC_OBJ_MISC) {
+    dropping = droppingparent && !(flags & HWLOC_RESTRICT_FLAG_ADAPT_MISC);
+  } else if (hwloc_obj_type_is_io(obj->type)) {
+    dropping = droppingparent && !(flags & HWLOC_RESTRICT_FLAG_ADAPT_IO);
+  } else {
+    dropping = droppingparent || (obj->cpuset && hwloc_bitmap_iszero(obj->cpuset));
+  }
+
+  if (modified)
+    for_each_child_safe(child, obj, pchild)
+      restrict_object(topology, flags, pchild, droppedcpuset, droppednodeset, dropping);
+
+  if (dropping) {
+    hwloc_debug("%s", "\nRemoving object during restrict");
+    print_object(topology, 0, obj);
+    if (obj->type == HWLOC_OBJ_NODE)
+      hwloc_bitmap_set(droppednodeset, obj->os_index);
+    /* remove the object from the tree (no need to remove from levels, they will be entirely rebuilt by the caller) */
+    unlink_and_free_single_object(pobj);
+    /* do not remove children. if they were to be removed, they would have been already */
+  }
+}
+
+/* adjust object nodesets accordingly the given droppednodeset
+ */
+static void
+restrict_object_nodeset(hwloc_topology_t topology, hwloc_obj_t *pobj, hwloc_nodeset_t droppednodeset)
+{
+  hwloc_obj_t obj = *pobj, child, *pchild;
+
+  /* if this object isn't modified, don't bother looking at children */
+  if (obj->complete_nodeset && !hwloc_bitmap_intersects(obj->complete_nodeset, droppednodeset))
+    return;
+
+  if (obj->nodeset)
+    hwloc_bitmap_andnot(obj->nodeset, obj->nodeset, droppednodeset);
+  if (obj->complete_nodeset)
+    hwloc_bitmap_andnot(obj->complete_nodeset, obj->complete_nodeset, droppednodeset);
+  if (obj->allowed_nodeset)
+    hwloc_bitmap_andnot(obj->allowed_nodeset, obj->allowed_nodeset, droppednodeset);
+
+  for_each_child_safe(child, obj, pchild)
+    restrict_object_nodeset(topology, pchild, droppednodeset);
+}
 /*
  * Merge with the only child if either the parent or the child has a type to be
  * ignored while keeping structure
@@ -1259,21 +1522,151 @@ merge_useless_child(hwloc_topology_t topology, hwloc_obj_t *pparent)
     print_object(topology, 0, parent);
     *pparent = child;
     child->next_sibling = parent->next_sibling;
-    hwloc_free_object(parent);
+    hwloc_free_unlinked_object(parent);
   } else if (topology->ignored_types[child->type] == HWLOC_IGNORE_TYPE_KEEP_STRUCTURE) {
     /* Child can be ignored in favor of the parent.  */
     hwloc_debug("%s", "\nIgnoring child ");
     print_object(topology, 0, child);
     parent->first_child = child->first_child;
-    hwloc_free_object(child);
+    hwloc_free_unlinked_object(child);
   }
 }
 
 /*
- * Initialize handy pointers in the whole topology
+ * If IO_DEVICES and WHOLE_IO are not set, we drop everything.
+ * If WHOLE_IO is not set, we drop non-interesting devices,
+ * and bridges that have no children.
+ * If IO_BRIDGES is also not set, we also drop all bridges
+ * except the hostbridges.
  */
 static void
-hwloc_connect(hwloc_obj_t parent)
+hwloc_drop_useless_io(hwloc_topology_t topology, hwloc_obj_t root)
+{
+  hwloc_obj_t child, *pchild;
+
+  if (!(topology->flags & (HWLOC_TOPOLOGY_FLAG_IO_DEVICES|HWLOC_TOPOLOGY_FLAG_WHOLE_IO))) {
+    /* drop all I/O children */
+    for_each_child_safe(child, root, pchild)
+      if (hwloc_obj_type_is_io(child->type))
+	unlink_and_free_object_and_children(pchild);
+    return;
+  }
+
+  if (!(topology->flags & HWLOC_TOPOLOGY_FLAG_WHOLE_IO)) {
+    /* drop non-interesting devices */
+    for_each_child_safe(child, root, pchild) {
+      if (child->type == HWLOC_OBJ_PCI_DEVICE) {
+	unsigned classid = child->attr->pcidev.class_id;
+	unsigned baseclass = classid >> 8;
+	if (baseclass != 0x03 /* PCI_BASE_CLASS_DISPLAY */
+	    && baseclass != 0x02 /* PCI_BASE_CLASS_NETWORK */
+	    && baseclass != 0x01 /* PCI_BASE_CLASS_STORAGE */
+	    && baseclass != 0x0b /* PCI_BASE_CLASS_PROCESSOR */
+	    && classid != 0x0c06 /* PCI_CLASS_SERIAL_INFINIBAND */)
+	  unlink_and_free_object_and_children(pchild);
+      }
+    }
+  }
+
+  /* look at remaining children, process recursively, and remove useless bridges */
+  for_each_child_safe(child, root, pchild) {
+    hwloc_drop_useless_io(topology, child);
+
+    if (child->type == HWLOC_OBJ_BRIDGE) {
+      hwloc_obj_t grandchildren = child->first_child;
+
+      if (!grandchildren) {
+	/* bridges with no children are removed if WHOLE_IO isn't given */
+	if (!(topology->flags & (HWLOC_TOPOLOGY_FLAG_WHOLE_IO))) {
+	  *pchild = child->next_sibling;
+	  hwloc_free_unlinked_object(child);
+	}
+
+      } else if (child->attr->bridge.upstream_type != HWLOC_OBJ_BRIDGE_HOST) {
+	/* only hostbridges are kept if WHOLE_IO or IO_BRIDGE are not given */
+	if (!(topology->flags & (HWLOC_TOPOLOGY_FLAG_IO_BRIDGES|HWLOC_TOPOLOGY_FLAG_WHOLE_IO))) {
+	  /* insert grandchildren in place of child */
+	  *pchild = grandchildren;
+	  for( ; grandchildren->next_sibling != NULL ; grandchildren = grandchildren->next_sibling);
+	  grandchildren->next_sibling = child->next_sibling;
+	  hwloc_free_unlinked_object(child);
+	}
+      }
+    }
+  }
+}
+
+static void
+hwloc_propagate_bridge_depth(hwloc_topology_t topology, hwloc_obj_t root, unsigned depth)
+{
+  hwloc_obj_t child = root->first_child;
+  while (child) {
+    if (child->type == HWLOC_OBJ_BRIDGE) {
+      child->attr->bridge.depth = depth;
+      hwloc_propagate_bridge_depth(topology, child, depth+1);
+    }
+    child = child->next_sibling;
+  }
+}
+
+static void
+hwloc_propagate_symmetric_subtree(hwloc_topology_t topology, hwloc_obj_t root)
+{
+  hwloc_obj_t child, *array;
+
+  /* assume we're not symmetric by default */
+  root->symmetric_subtree = 0;
+
+  /* if no child, we are symmetric */
+  if (!root->arity) {
+    root->symmetric_subtree = 1;
+    return;
+  }
+
+  /* look at children, and return if they are not symmetric */
+  child = NULL;
+  while ((child = hwloc_get_next_child(topology, root, child)) != NULL)
+    hwloc_propagate_symmetric_subtree(topology, child);
+  while ((child = hwloc_get_next_child(topology, root, child)) != NULL)
+    if (!child->symmetric_subtree)
+      return;
+
+  /* now check that children subtrees are identical.
+   * just walk down the first child in each tree and compare their depth and arities
+   */
+  array = malloc(root->arity * sizeof(*array));
+  memcpy(array, root->children, root->arity * sizeof(*array));
+  while (1) {
+    unsigned i;
+    /* check current level arities and depth */
+    for(i=1; i<root->arity; i++)
+      if (array[i]->depth != array[0]->depth
+	  || array[i]->arity != array[0]->arity) {
+      free(array);
+      return;
+    }
+    if (!array[0]->arity)
+      /* no more children level, we're ok */
+      break;
+    /* look at first child of each element now */
+    for(i=0; i<root->arity; i++)
+      array[i] = array[i]->first_child;
+  }
+  free(array);
+
+  /* everything went fine, we're symmetric */
+  root->symmetric_subtree = 1;
+}
+
+/*
+ * Initialize handy pointers in the whole topology.
+ * The topology only had first_child and next_sibling pointers.
+ * When this funtions return, all parent/children pointers are initialized.
+ * The remaining fields (levels, cousins, logical_index, depth, ...) will
+ * be setup later in hwloc_connect_levels().
+ */
+void
+hwloc_connect_children(hwloc_obj_t parent)
 {
   unsigned n;
   hwloc_obj_t child, prev_child = NULL;
@@ -1299,7 +1692,7 @@ hwloc_connect(hwloc_obj_t parent)
        child;
        n++,   child = child->next_sibling) {
     parent->children[n] = child;
-    hwloc_connect(child);
+    hwloc_connect_children(child);
   }
 }
 
@@ -1317,6 +1710,306 @@ find_same_type(hwloc_obj_t root, hwloc_obj_t obj)
   for (child = root->first_child; child; child = child->next_sibling)
     if (find_same_type(child, obj))
       return 1;
+
+  return 0;
+}
+
+/* traverse the array of current object and compare them with top_obj.
+ * if equal, take the object and put its children into the remaining objs.
+ * if not equal, put the object into the remaining objs.
+ */
+static int
+hwloc_level_take_objects(hwloc_obj_t top_obj,
+			 hwloc_obj_t *current_objs, unsigned n_current_objs,
+			 hwloc_obj_t *taken_objs, unsigned n_taken_objs __hwloc_attribute_unused,
+			 hwloc_obj_t *remaining_objs, unsigned n_remaining_objs __hwloc_attribute_unused)
+{
+  unsigned taken_i = 0;
+  unsigned new_i = 0;
+  unsigned i, j;
+
+  for (i = 0; i < n_current_objs; i++)
+    if (hwloc_type_cmp(top_obj, current_objs[i]) == HWLOC_TYPE_EQUAL) {
+      /* Take it, add children.  */
+      taken_objs[taken_i++] = current_objs[i];
+      for (j = 0; j < current_objs[i]->arity; j++)
+	remaining_objs[new_i++] = current_objs[i]->children[j];
+    } else {
+      /* Leave it.  */
+      remaining_objs[new_i++] = current_objs[i];
+    }
+
+#ifdef HWLOC_DEBUG
+  /* Make sure we didn't mess up.  */
+  assert(taken_i == n_taken_objs);
+  assert(new_i == n_current_objs - n_taken_objs + n_remaining_objs);
+#endif
+
+  return new_i;
+}
+
+/* Given an input object, copy it or its interesting children into the output array.
+ * If new_obj is NULL, we're just counting interesting ohjects.
+ */
+static unsigned
+hwloc_level_filter_object(hwloc_topology_t topology,
+			  hwloc_obj_t *new_obj, hwloc_obj_t old)
+{
+  unsigned i, total;
+  if (hwloc_obj_type_is_io(old->type)) {
+    if (new_obj)
+      append_iodevs(topology, old);
+    return 0;
+  }
+  if (old->type != HWLOC_OBJ_MISC) {
+    if (new_obj)
+      *new_obj = old;
+    return 1;
+  }
+  for(i=0, total=0; i<old->arity; i++) {
+    int nb = hwloc_level_filter_object(topology, new_obj, old->children[i]);
+    if (new_obj) {
+      new_obj += nb;
+      /* misc objects go in no level (needed here because insert_misc() not always involved e.g. during XML import) */
+      old->depth = (unsigned) HWLOC_TYPE_DEPTH_UNKNOWN;
+    }
+    total += nb;
+  }
+  return total;
+}
+
+/* Replace an input array of objects with an input array containing
+ * only interesting objects for levels.
+ * Misc objects are removed, their interesting children are added.
+ * I/O devices are removed and queue to their own lists.
+ */
+static int
+hwloc_level_filter_objects(hwloc_topology_t topology,
+			   hwloc_obj_t **objs, unsigned *n_objs)
+{
+  hwloc_obj_t *old = *objs, *new;
+  unsigned nold = *n_objs, nnew, i;
+
+  /* anything to filter? */
+  for(i=0; i<nold; i++)
+    if (hwloc_obj_type_is_io(old[i]->type)
+	|| old[i]->type == HWLOC_OBJ_MISC)
+      break;
+  if (i==nold)
+    return 0;
+
+  /* count interesting objects and allocate the new array */
+  for(i=0, nnew=0; i<nold; i++)
+    nnew += hwloc_level_filter_object(topology, NULL, old[i]);
+  new = malloc(nnew * sizeof(hwloc_obj_t));
+  if (!new) {
+    free(old);
+    errno = ENOMEM;
+    return -1;
+  }
+  /* copy them now */
+  for(i=0, nnew=0; i<nold; i++)
+    nnew += hwloc_level_filter_object(topology, new+nnew, old[i]);
+
+  /* use the new array */
+  *objs = new;
+  *n_objs = nnew;
+  free(old);
+  return 0;
+}
+
+static unsigned
+hwloc_build_level_from_list(struct hwloc_obj *first, struct hwloc_obj ***levelp)
+{
+  unsigned i, nb;
+  struct hwloc_obj * obj;
+
+  /* count */
+  obj = first;
+  i = 0;
+  while (obj) {
+    i++;
+    obj = obj->next_cousin;
+  }
+  nb = i;
+
+  /* allocate and fill level */
+  *levelp = malloc(nb * sizeof(struct hwloc_obj *));
+  obj = first;
+  i = 0;
+  while (obj) {
+    obj->logical_index = i;
+    (*levelp)[i] = obj;
+    i++;
+    obj = obj->next_cousin;
+  }
+
+  return nb;
+}
+
+/*
+ * Do the remaining work that hwloc_connect_children() did not do earlier.
+ */
+int
+hwloc_connect_levels(hwloc_topology_t topology)
+{
+  unsigned l, i=0;
+  hwloc_obj_t *objs, *taken_objs, *new_objs, top_obj;
+  unsigned n_objs, n_taken_objs, n_new_objs;
+  int err;
+
+  /* reset non-root levels (root was initialized during init and will not change here) */
+  for(l=1; l<HWLOC_DEPTH_MAX; l++)
+    free(topology->levels[l]);
+  memset(topology->levels+1, 0, (HWLOC_DEPTH_MAX-1)*sizeof(*topology->levels));
+  memset(topology->level_nbobjects+1, 0,  (HWLOC_DEPTH_MAX-1)*sizeof(*topology->level_nbobjects));
+  topology->nb_levels = 1;
+  /* don't touch next_group_depth, the Group objects are still here */
+
+  /* initialize all depth to unknown */
+  for (l = HWLOC_OBJ_SYSTEM; l < HWLOC_OBJ_TYPE_MAX; l++)
+    topology->type_depth[l] = HWLOC_TYPE_DEPTH_UNKNOWN;
+  /* initialize root type depth */
+  topology->type_depth[topology->levels[0][0]->type] = 0;
+
+  /* initialize I/O special levels */
+  free(topology->bridge_level);
+  topology->bridge_level = NULL;
+  topology->bridge_nbobjects = 0;
+  topology->first_bridge = topology->last_bridge = NULL;
+  topology->type_depth[HWLOC_OBJ_BRIDGE] = HWLOC_TYPE_DEPTH_BRIDGE;
+  free(topology->pcidev_level);
+  topology->pcidev_level = NULL;
+  topology->pcidev_nbobjects = 0;
+  topology->first_pcidev = topology->last_pcidev = NULL;
+  topology->type_depth[HWLOC_OBJ_PCI_DEVICE] = HWLOC_TYPE_DEPTH_PCI_DEVICE;
+  free(topology->osdev_level);
+  topology->osdev_level = NULL;
+  topology->osdev_nbobjects = 0;
+  topology->first_osdev = topology->last_osdev = NULL;
+  topology->type_depth[HWLOC_OBJ_OS_DEVICE] = HWLOC_TYPE_DEPTH_OS_DEVICE;
+
+  /* Start with children of the whole system.  */
+  n_objs = topology->levels[0][0]->arity;
+  objs = malloc(n_objs * sizeof(objs[0]));
+  if (!objs) {
+    errno = ENOMEM;
+    hwloc_topology_clear(topology);
+    return -1;
+  }
+  memcpy(objs, topology->levels[0][0]->children, n_objs*sizeof(objs[0]));
+
+  /* Filter-out interesting objects */
+  err = hwloc_level_filter_objects(topology, &objs, &n_objs);
+  if (err < 0) {
+    errno = ENOMEM;
+    hwloc_topology_clear(topology);
+    return -1;
+  }
+
+  /* Keep building levels while there are objects left in OBJS.  */
+  while (n_objs) {
+    /* At this point, the objs array contains only objects that may go into levels */
+
+    /* First find which type of object is the topmost.
+     * Don't use PU if there are other types since we want to keep PU at the bottom.
+     */
+
+    /* Look for the first non-PU object, and use the first PU if we really find nothing else */
+    for (i = 0; i < n_objs; i++)
+      if (objs[i]->type != HWLOC_OBJ_PU)
+        break;
+    top_obj = i == n_objs ? objs[0] : objs[i];
+
+    /* See if this is actually the topmost object */
+    for (i = 0; i < n_objs; i++) {
+      if (hwloc_type_cmp(top_obj, objs[i]) != HWLOC_TYPE_EQUAL) {
+	if (find_same_type(objs[i], top_obj)) {
+	  /* OBJS[i] is strictly above an object of the same type as TOP_OBJ, so it
+	   * is above TOP_OBJ.  */
+	  top_obj = objs[i];
+	}
+      }
+    }
+
+    /* Now peek all objects of the same type, build a level with that and
+     * replace them with their children.  */
+
+    /* First count them.  */
+    n_taken_objs = 0;
+    n_new_objs = 0;
+    for (i = 0; i < n_objs; i++)
+      if (hwloc_type_cmp(top_obj, objs[i]) == HWLOC_TYPE_EQUAL) {
+	n_taken_objs++;
+	n_new_objs += objs[i]->arity;
+      }
+
+    /* New level.  */
+    taken_objs = malloc((n_taken_objs + 1) * sizeof(taken_objs[0]));
+    /* New list of pending objects.  */
+    if (n_objs - n_taken_objs + n_new_objs)
+      new_objs = malloc((n_objs - n_taken_objs + n_new_objs) * sizeof(new_objs[0]));
+    else
+      new_objs = NULL;
+
+    n_new_objs = hwloc_level_take_objects(top_obj,
+					  objs, n_objs,
+					  taken_objs, n_taken_objs,
+					  new_objs, n_new_objs);
+
+    /* Ok, put numbers in the level and link cousins.  */
+    for (i = 0; i < n_taken_objs; i++) {
+      taken_objs[i]->depth = topology->nb_levels;
+      taken_objs[i]->logical_index = i;
+      if (i) {
+	taken_objs[i]->prev_cousin = taken_objs[i-1];
+	taken_objs[i-1]->next_cousin = taken_objs[i];
+      }
+    }
+    taken_objs[0]->prev_cousin = NULL;
+    taken_objs[n_taken_objs-1]->next_cousin = NULL;
+
+    /* One more level!  */
+    if (top_obj->type == HWLOC_OBJ_CACHE)
+      hwloc_debug("--- Cache level depth %u", top_obj->attr->cache.depth);
+    else
+      hwloc_debug("--- %s level", hwloc_obj_type_string(top_obj->type));
+    hwloc_debug(" has number %u\n\n", topology->nb_levels);
+
+    if (topology->type_depth[top_obj->type] == HWLOC_TYPE_DEPTH_UNKNOWN)
+      topology->type_depth[top_obj->type] = topology->nb_levels;
+    else
+      topology->type_depth[top_obj->type] = HWLOC_TYPE_DEPTH_MULTIPLE; /* mark as unknown */
+
+    taken_objs[n_taken_objs] = NULL;
+
+    topology->level_nbobjects[topology->nb_levels] = n_taken_objs;
+    topology->levels[topology->nb_levels] = taken_objs;
+
+    topology->nb_levels++;
+
+    free(objs);
+
+    /* Switch to new_objs, after filtering-out interesting objects */
+    err = hwloc_level_filter_objects(topology, &new_objs, &n_new_objs);
+    if (err < 0) {
+      errno = ENOMEM;
+      hwloc_topology_clear(topology);
+      return -1;
+    }
+    objs = new_objs;
+    n_objs = n_new_objs;
+  }
+
+  /* It's empty now.  */
+  if (objs)
+    free(objs);
+
+  topology->bridge_nbobjects = hwloc_build_level_from_list(topology->first_bridge, &topology->bridge_level);
+  topology->pcidev_nbobjects = hwloc_build_level_from_list(topology->first_pcidev, &topology->pcidev_level);
+  topology->osdev_nbobjects = hwloc_build_level_from_list(topology->first_osdev, &topology->osdev_level);
+
+  hwloc_propagate_symmetric_subtree(topology, topology->levels[0][0]);
 
   return 0;
 }
@@ -1438,21 +2131,24 @@ static void alloc_cpusets(hwloc_obj_t obj)
   obj->allowed_nodeset = hwloc_bitmap_alloc_full();
 }
 
+static void hwloc_topology_setup_defaults(struct hwloc_topology *topology);
+
 /* Main discovery loop */
 static int
 hwloc_discover(struct hwloc_topology *topology)
 {
-  unsigned l, i=0, taken_i, new_i, j;
-  hwloc_obj_t *objs, *taken_objs, *new_objs, top_obj;
-  unsigned n_objs, n_taken_objs, n_new_objs;
+  int gotsomeio = 1;
 
   if (topology->backend_type == HWLOC_BACKEND_SYNTHETIC) {
     alloc_cpusets(topology->levels[0][0]);
     hwloc_look_synthetic(topology);
-#ifdef HWLOC_HAVE_XML
+  } else if (topology->backend_type == HWLOC_BACKEND_CUSTOM) {
+    /* nothing to do, just connect levels below */
   } else if (topology->backend_type == HWLOC_BACKEND_XML) {
-    hwloc_look_xml(topology);
-#endif
+    if (hwloc_look_xml(topology) < 0) {
+      hwloc_topology_clear(topology);
+      return -1;
+    }
   } else {
 
   /* Raw detection, from coarser levels to finer levels for more efficiency.  */
@@ -1471,11 +2167,6 @@ hwloc_discover(struct hwloc_topology *topology)
   /* To be able to just use hwloc_insert_object_by_cpuset to insert the object
    * in the topology according to the cpuset, the cpuset field must be
    * initialized.
-   */
-
-  /* If the OS can provide NUMA distances, it should call
-   * hwloc_setup_misc_level_from_distances() to automatically group NUMA nodes
-   * into misc objects.
    */
 
   /* A priori, All processors are visible in the topology, online, and allowed
@@ -1510,7 +2201,7 @@ hwloc_discover(struct hwloc_topology *topology)
 
 #    ifdef HWLOC_LINUX_SYS
 #      define HAVE_OS_SUPPORT
-    hwloc_look_linux(topology);
+    hwloc_look_linuxfs(topology);
 #    endif /* HWLOC_LINUX_SYS */
 
 #    ifdef HWLOC_AIX_SYS
@@ -1565,6 +2256,12 @@ hwloc_discover(struct hwloc_topology *topology)
    * Now that backends have detected objects, sort them and establish pointers.
    */
   print_objects(topology, 0, topology->levels[0][0]);
+
+  /*
+   * Group levels by distances
+   */
+  hwloc_distances_finalize_os(topology);
+  hwloc_group_by_distances(topology);
 
   /* First tweak a bit to clean the topology.  */
   hwloc_debug("%s", "\nRestrict topology cpusets to existing PU and NODE objects\n");
@@ -1625,124 +2322,69 @@ hwloc_discover(struct hwloc_topology *topology)
 
   /* Now connect handy pointers.  */
 
-  hwloc_connect(topology->levels[0][0]);
+  hwloc_connect_children(topology->levels[0][0]);
 
   print_objects(topology, 0, topology->levels[0][0]);
 
   /* Explore the resulting topology level by level.  */
 
-  /* initialize all depth to unknown */
-  for (l=1; l < HWLOC_OBJ_TYPE_MAX; l++)
-    topology->type_depth[l] = HWLOC_TYPE_DEPTH_UNKNOWN;
-  topology->type_depth[topology->levels[0][0]->type] = 0;
-
-  /* Start with children of the whole system.  */
-  l = 0;
-  n_objs = topology->levels[0][0]->arity;
-  objs = malloc(n_objs * sizeof(objs[0]));
-  if (!objs) {
-    errno = ENOMEM;
-    hwloc_topology_clear(topology);
+  if (hwloc_connect_levels(topology) < 0)
     return -1;
-  }
-  memcpy(objs, topology->levels[0][0]->children, n_objs * sizeof(objs[0]));
-
-  /* Keep building levels while there are objects left in OBJS.  */
-  while (n_objs) {
-
-    /* First find which type of object is the topmost.
-     * Don't use PU if there are other types since we want to keep PU at the bottom.
-     */
-    for (i = 0; i < n_objs; i++)
-      if (objs[i]->type != HWLOC_OBJ_PU)
-        break;
-    top_obj = i == n_objs ? objs[0] : objs[i];
-    for (i = 0; i < n_objs; i++) {
-      if (hwloc_type_cmp(top_obj, objs[i]) != HWLOC_TYPE_EQUAL) {
-	if (find_same_type(objs[i], top_obj)) {
-	  /* OBJS[i] is strictly above an object of the same type as TOP_OBJ, so it
-	   * is above TOP_OBJ.  */
-	  top_obj = objs[i];
-	}
-      }
-    }
-
-    /* Now peek all objects of the same type, build a level with that and
-     * replace them with their children.  */
-
-    /* First count them.  */
-    n_taken_objs = 0;
-    n_new_objs = 0;
-    for (i = 0; i < n_objs; i++)
-      if (hwloc_type_cmp(top_obj, objs[i]) == HWLOC_TYPE_EQUAL) {
-	n_taken_objs++;
-	n_new_objs += objs[i]->arity;
-      }
-
-    /* New level.  */
-    taken_objs = malloc((n_taken_objs + 1) * sizeof(taken_objs[0]));
-    /* New list of pending objects.  */
-    new_objs = malloc((n_objs - n_taken_objs + n_new_objs) * sizeof(new_objs[0]));
-
-    taken_i = 0;
-    new_i = 0;
-    for (i = 0; i < n_objs; i++)
-      if (hwloc_type_cmp(top_obj, objs[i]) == HWLOC_TYPE_EQUAL) {
-	/* Take it, add children.  */
-	taken_objs[taken_i++] = objs[i];
-	for (j = 0; j < objs[i]->arity; j++)
-	  new_objs[new_i++] = objs[i]->children[j];
-      } else
-	/* Leave it.  */
-	new_objs[new_i++] = objs[i];
-
-
-#ifdef HWLOC_DEBUG
-    /* Make sure we didn't mess up.  */
-    assert(taken_i == n_taken_objs);
-    assert(new_i == n_objs - n_taken_objs + n_new_objs);
-#endif
-
-    /* Ok, put numbers in the level.  */
-    for (i = 0; i < n_taken_objs; i++) {
-      taken_objs[i]->depth = topology->nb_levels;
-      taken_objs[i]->logical_index = i;
-      if (i) {
-	taken_objs[i]->prev_cousin = taken_objs[i-1];
-	taken_objs[i-1]->next_cousin = taken_objs[i];
-      }
-    }
-
-    /* One more level!  */
-    if (top_obj->type == HWLOC_OBJ_CACHE)
-      hwloc_debug("--- Cache level depth %u", top_obj->attr->cache.depth);
-    else
-      hwloc_debug("--- %s level", hwloc_obj_type_string(top_obj->type));
-    hwloc_debug(" has number %u\n\n", topology->nb_levels);
-
-    if (topology->type_depth[top_obj->type] == HWLOC_TYPE_DEPTH_UNKNOWN)
-      topology->type_depth[top_obj->type] = topology->nb_levels;
-    else
-      topology->type_depth[top_obj->type] = HWLOC_TYPE_DEPTH_MULTIPLE; /* mark as unknown */
-
-    taken_objs[n_taken_objs] = NULL;
-
-    topology->level_nbobjects[topology->nb_levels] = n_taken_objs;
-    topology->levels[topology->nb_levels] = taken_objs;
-
-    topology->nb_levels++;
-
-    free(objs);
-    objs = new_objs;
-    n_objs = new_i;
-  }
-
-  /* It's empty now.  */
-  free(objs);
 
   /* accumulate children memory in total_memory fields (only once parent is set) */
   hwloc_debug("%s", "\nPropagate total memory up\n");
   propagate_total_memory(topology->levels[0][0]);
+
+  /*
+   * Additional detection, using hwloc_insert_object to add a few objects here
+   * and there.
+   */
+
+  /* I/O devices */
+
+  /* see if the backend already imported some I/O devices */
+  if (topology->backend_type == HWLOC_BACKEND_XML
+      || topology->backend_type == HWLOC_BACKEND_SYNTHETIC
+      || topology->backend_type == HWLOC_BACKEND_CUSTOM)
+    gotsomeio = 1;
+  /* import from libpci if needed */
+  if (topology->flags & (HWLOC_TOPOLOGY_FLAG_IO_DEVICES|HWLOC_TOPOLOGY_FLAG_WHOLE_IO)
+      && (topology->backend_type == HWLOC_BACKEND_NONE
+#ifdef HWLOC_LINUX_SYS
+	  || topology->backend_type == HWLOC_BACKEND_LINUXFS
+#endif
+	  )) {
+    hwloc_debug("%s", "\nLooking for PCI devices\n");
+#ifdef HWLOC_HAVE_LIBPCI
+    if (topology->is_thissystem) {
+      hwloc_look_libpci(topology);
+      print_objects(topology, 0, topology->levels[0][0]);
+      gotsomeio = 1;
+    } else
+#endif
+    {
+      hwloc_debug("%s", "\nno PCI detection\n");
+    }
+  }
+  /* if we got anything, filter interesting objects and update the tree */
+  if (gotsomeio) {
+    hwloc_drop_useless_io(topology, topology->levels[0][0]);
+    hwloc_debug("%s", "\nNow reconnecting\n");
+    hwloc_connect_children(topology->levels[0][0]);
+    hwloc_connect_levels(topology);
+    print_objects(topology, 0, topology->levels[0][0]);
+    hwloc_propagate_bridge_depth(topology, topology->levels[0][0], 0);
+  }
+
+  /*
+   * Now that objects are numbered, take distance matrices from backends and put them in the main topology.
+   *
+   * Some objects may have disappeared (in removed_empty or removed_ignored) since we setup os distances
+   * (hwloc_distances_finalize_os()) above. Reset them so as to not point to disappeared objects anymore.
+   */
+  hwloc_distances_restrict_os(topology);
+  hwloc_distances_finalize_os(topology);
+  hwloc_distances_finalize_logical(topology);
 
   /*
    * Now set binding hooks.
@@ -1755,7 +2397,7 @@ hwloc_discover(struct hwloc_topology *topology)
 
   if (topology->is_thissystem) {
 #    ifdef HWLOC_LINUX_SYS
-    hwloc_set_linux_hooks(topology);
+    hwloc_set_linuxfs_hooks(topology);
 #    endif /* HWLOC_LINUX_SYS */
 
 #    ifdef HWLOC_AIX_SYS
@@ -1796,6 +2438,10 @@ hwloc_discover(struct hwloc_topology *topology)
     topology->set_thread_cpubind = dontset_thread_cpubind;
     topology->get_thread_cpubind = dontget_thread_cpubind;
 #endif
+    topology->get_thisproc_last_cpu_location = dontget_thisproc_cpubind; /* cpubind instead of last_cpu_location is ok */
+    topology->get_thisthread_last_cpu_location = dontget_thisthread_cpubind; /* cpubind instead of last_cpu_location is ok */
+    topology->get_proc_last_cpu_location = dontget_proc_cpubind; /* cpubind instead of last_cpu_location is ok */
+    /* TODO: get_thread_last_cpu_location */
     topology->set_thisproc_membind = dontset_thisproc_membind;
     topology->get_thisproc_membind = dontget_thisproc_membind;
     topology->set_thisthread_membind = dontset_thisthread_membind;
@@ -1822,8 +2468,13 @@ hwloc_discover(struct hwloc_topology *topology)
     DO(cpu,get_proc_cpubind);
     DO(cpu,set_thisthread_cpubind);
     DO(cpu,get_thisthread_cpubind);
+#ifdef hwloc_thread_t
     DO(cpu,set_thread_cpubind);
     DO(cpu,get_thread_cpubind);
+#endif
+    DO(cpu,get_thisproc_last_cpu_location);
+    DO(cpu,get_proc_last_cpu_location);
+    DO(cpu,get_thisthread_last_cpu_location);
     DO(mem,set_thisproc_membind);
     DO(mem,get_thisproc_membind);
     DO(mem,set_thisthread_membind);
@@ -1845,7 +2496,6 @@ static void
 hwloc_topology_setup_defaults(struct hwloc_topology *topology)
 {
   struct hwloc_obj *root_obj;
-  int i;
 
   /* reset support */
   topology->set_thisproc_cpubind = NULL;
@@ -1858,6 +2508,9 @@ hwloc_topology_setup_defaults(struct hwloc_topology *topology)
   topology->set_thread_cpubind = NULL;
   topology->get_thread_cpubind = NULL;
 #endif
+  topology->get_thisproc_last_cpu_location = NULL;
+  topology->get_proc_last_cpu_location = NULL;
+  topology->get_thisthread_last_cpu_location = NULL;
   topology->set_thisproc_membind = NULL;
   topology->get_thisproc_membind = NULL;
   topology->set_thisthread_membind = NULL;
@@ -1873,13 +2526,19 @@ hwloc_topology_setup_defaults(struct hwloc_topology *topology)
   memset(topology->support.cpubind, 0, sizeof(*topology->support.cpubind));
   memset(topology->support.membind, 0, sizeof(*topology->support.membind));
 
-  /* No objects by default but System on top by default */
-  memset(topology->level_nbobjects, 0, sizeof(topology->level_nbobjects));
-  for (i=0; i < HWLOC_OBJ_TYPE_MAX; i++)
-    topology->type_depth[i] = HWLOC_TYPE_DEPTH_UNKNOWN;
+  /* Only the System object on top by default */
   topology->nb_levels = 1; /* there's at least SYSTEM */
-  topology->levels[0] = malloc (sizeof (struct hwloc_obj));
+  topology->next_group_depth = 0;
+  topology->levels[0] = malloc (sizeof (hwloc_obj_t));
   topology->level_nbobjects[0] = 1;
+  /* NULLify other levels so that we can detect and free old ones in hwloc_connect_levels() if needed */
+  memset(topology->levels+1, 0, (HWLOC_DEPTH_MAX-1)*sizeof(*topology->levels));
+  topology->bridge_level = NULL;
+  topology->pcidev_level = NULL;
+  topology->osdev_level = NULL;
+  topology->first_bridge = topology->last_bridge = NULL;
+  topology->first_pcidev = topology->last_pcidev = NULL;
+  topology->first_osdev = topology->last_osdev = NULL;
 
   /* Create the actual machine object, but don't touch its attributes yet
    * since the OS backend may still change the object into something else
@@ -1914,9 +2573,11 @@ hwloc_topology_init (struct hwloc_topology **topologyp)
   topology->support.membind = malloc(sizeof(*topology->support.membind));
 
   /* Only ignore useless cruft by default */
-  for(i=0; i< HWLOC_OBJ_TYPE_MAX; i++)
+  for(i = HWLOC_OBJ_SYSTEM; i < HWLOC_OBJ_TYPE_MAX; i++)
     topology->ignored_types[i] = HWLOC_IGNORE_TYPE_NEVER;
   topology->ignored_types[HWLOC_OBJ_GROUP] = HWLOC_IGNORE_TYPE_KEEP_STRUCTURE;
+
+  hwloc_distances_init(topology);
 
   /* Make the topology look like something coherent but empty */
   hwloc_topology_setup_defaults(topology);
@@ -1925,28 +2586,87 @@ hwloc_topology_init (struct hwloc_topology **topologyp)
   return 0;
 }
 
+int
+hwloc_topology_set_pid(struct hwloc_topology *topology __hwloc_attribute_unused,
+                       hwloc_pid_t pid __hwloc_attribute_unused)
+{
+  /* this does *not* change the backend */
+#ifdef HWLOC_LINUX_SYS
+  topology->pid = pid;
+  return 0;
+#else /* HWLOC_LINUX_SYS */
+  errno = ENOSYS;
+  return -1;
+#endif /* HWLOC_LINUX_SYS */
+}
+
+static int
+hwloc_backend_custom_init(struct hwloc_topology *topology)
+{
+  assert(topology->backend_type == HWLOC_BACKEND_NONE);
+
+  topology->levels[0][0]->type = HWLOC_OBJ_SYSTEM;
+  topology->is_thissystem = 0;
+  topology->backend_type = HWLOC_BACKEND_CUSTOM;
+  return 0;
+}
+
+int
+hwloc_custom_insert_topology(struct hwloc_topology *newtopology,
+			     struct hwloc_obj *newparent,
+			     struct hwloc_topology *oldtopology,
+			     struct hwloc_obj *oldroot)
+{
+  if (newtopology->backend_type != HWLOC_BACKEND_CUSTOM || newtopology->is_loaded || !oldtopology->is_loaded) {
+    errno = EINVAL;
+    return -1;
+  }
+
+  hwloc__duplicate_objects(newtopology, newparent, oldroot ? oldroot : oldtopology->levels[0][0]);
+  return 0;
+}
+
+static void
+hwloc_backend_custom_exit(struct hwloc_topology *topology)
+{
+  assert(topology->backend_type == HWLOC_BACKEND_CUSTOM);
+
+  hwloc_topology_clear(topology);
+  hwloc_topology_setup_defaults(topology);
+
+  topology->backend_type = HWLOC_BACKEND_NONE;
+}
+
 static void
 hwloc_backend_exit(struct hwloc_topology *topology)
 {
   switch (topology->backend_type) {
 #ifdef HWLOC_LINUX_SYS
-  case HWLOC_BACKEND_SYSFS:
-    hwloc_backend_sysfs_exit(topology);
+  case HWLOC_BACKEND_LINUXFS:
+    hwloc_backend_linuxfs_exit(topology);
     break;
 #endif
-#ifdef HWLOC_HAVE_XML
   case HWLOC_BACKEND_XML:
     hwloc_backend_xml_exit(topology);
     break;
-#endif
   case HWLOC_BACKEND_SYNTHETIC:
     hwloc_backend_synthetic_exit(topology);
+    break;
+  case HWLOC_BACKEND_CUSTOM:
+    hwloc_backend_custom_exit(topology);
     break;
   default:
     break;
   }
 
   assert(topology->backend_type == HWLOC_BACKEND_NONE);
+
+  if (topology->is_loaded) {
+    hwloc_topology_clear(topology);
+    hwloc_distances_destroy(topology);
+    hwloc_topology_setup_defaults(topology);
+    topology->is_loaded = 0;
+  }
 }
 
 int
@@ -1956,19 +2676,8 @@ hwloc_topology_set_fsroot(struct hwloc_topology *topology, const char *fsroot_pa
   hwloc_backend_exit(topology);
 
 #ifdef HWLOC_LINUX_SYS
-  if (hwloc_backend_sysfs_init(topology, fsroot_path) < 0)
+  if (hwloc_backend_linuxfs_init(topology, fsroot_path) < 0)
     return -1;
-#endif /* HWLOC_LINUX_SYS */
-
-  return 0;
-}
-
-int
-hwloc_topology_set_pid(struct hwloc_topology *topology __hwloc_attribute_unused,
-                       hwloc_pid_t pid __hwloc_attribute_unused)
-{
-#ifdef HWLOC_LINUX_SYS
-  topology->pid = pid;
   return 0;
 #else /* HWLOC_LINUX_SYS */
   errno = ENOSYS;
@@ -1989,15 +2698,19 @@ int
 hwloc_topology_set_xml(struct hwloc_topology *topology __hwloc_attribute_unused,
                        const char *xmlpath __hwloc_attribute_unused)
 {
-#ifdef HWLOC_HAVE_XML
   /* cleanup existing backend */
   hwloc_backend_exit(topology);
 
   return hwloc_backend_xml_init(topology, xmlpath, NULL, 0);
-#else /* HWLOC_HAVE_XML */
-  errno = ENOSYS;
-  return -1;
-#endif /* !HWLOC_HAVE_XML */
+}
+
+int
+hwloc_topology_set_custom(struct hwloc_topology *topology)
+{
+  /* cleanup existing backend */
+  hwloc_backend_exit(topology);
+
+  return hwloc_backend_custom_init(topology);
 }
 
 int
@@ -2005,15 +2718,10 @@ hwloc_topology_set_xmlbuffer(struct hwloc_topology *topology __hwloc_attribute_u
                              const char *xmlbuffer __hwloc_attribute_unused,
                              int size __hwloc_attribute_unused)
 {
-#ifdef HWLOC_HAVE_XML
   /* cleanup existing backend */
   hwloc_backend_exit(topology);
 
   return hwloc_backend_xml_init(topology, NULL, xmlbuffer, size);
-#else /* HWLOC_HAVE_XML */
-  errno = ENOSYS;
-  return -1;
-#endif /* !HWLOC_HAVE_XML */
 }
 
 int
@@ -2035,6 +2743,10 @@ hwloc_topology_ignore_type(struct hwloc_topology *topology, hwloc_obj_type_t typ
     /* we need the PU level */
     errno = EINVAL;
     return -1;
+  } else if (hwloc_obj_type_is_io(type)) {
+    /* I/O devices aren't in any level, use topology flags to ignore them */
+    errno = EINVAL;
+    return -1;
   }
 
   topology->ignored_types[type] = HWLOC_IGNORE_TYPE_ALWAYS;
@@ -2053,6 +2765,10 @@ hwloc_topology_ignore_type_keep_structure(struct hwloc_topology *topology, hwloc
     /* we need the PU level */
     errno = EINVAL;
     return -1;
+  } else if (hwloc_obj_type_is_io(type)) {
+    /* I/O devices aren't in any level, use topology flags to ignore them */
+    errno = EINVAL;
+    return -1;
   }
 
   topology->ignored_types[type] = HWLOC_IGNORE_TYPE_KEEP_STRUCTURE;
@@ -2063,35 +2779,50 @@ int
 hwloc_topology_ignore_all_keep_structure(struct hwloc_topology *topology)
 {
   unsigned type;
-  for(type=0; type<HWLOC_OBJ_TYPE_MAX; type++)
-    if (type != HWLOC_OBJ_PU)
+  for(type = HWLOC_OBJ_SYSTEM; type < HWLOC_OBJ_TYPE_MAX; type++)
+    if (type != HWLOC_OBJ_PU
+	&& !hwloc_obj_type_is_io((hwloc_obj_type_t) type))
       topology->ignored_types[type] = HWLOC_IGNORE_TYPE_KEEP_STRUCTURE;
   return 0;
 }
 
+/* traverse the tree and free everything.
+ * only use first_child/next_sibling so that it works before load()
+ * and may be used when switching between backend.
+ */
 static void
 hwloc_topology_clear_tree (struct hwloc_topology *topology, struct hwloc_obj *root)
 {
-  unsigned i;
-  for(i=0; i<root->arity; i++)
-    hwloc_topology_clear_tree (topology, root->children[i]);
-  hwloc_free_object (root);
+  hwloc_obj_t child = root->first_child;
+  while (child) {
+    hwloc_obj_t nextchild = child->next_sibling;
+    hwloc_topology_clear_tree (topology, child);
+    child = nextchild;
+  }
+  hwloc_free_unlinked_object (root);
 }
 
 static void
 hwloc_topology_clear (struct hwloc_topology *topology)
 {
   unsigned l;
+  hwloc_distances_clear(topology);
   hwloc_topology_clear_tree (topology, topology->levels[0][0]);
-  for (l=0; l<topology->nb_levels; l++)
+  for (l=0; l<topology->nb_levels; l++) {
     free(topology->levels[l]);
+    topology->levels[l] = NULL;
+  }
+  free(topology->bridge_level);
+  free(topology->pcidev_level);
+  free(topology->osdev_level);
 }
 
 void
 hwloc_topology_destroy (struct hwloc_topology *topology)
 {
-  hwloc_topology_clear(topology);
   hwloc_backend_exit(topology);
+  hwloc_topology_clear(topology);
+  hwloc_distances_destroy(topology);
   free(topology->support.discovery);
   free(topology->support.cpubind);
   free(topology->support.membind);
@@ -2116,11 +2847,10 @@ hwloc_topology_load (struct hwloc_topology *topology)
     char *fsroot_path_env = getenv("HWLOC_FORCE_FSROOT");
     if (fsroot_path_env) {
       hwloc_backend_exit(topology);
-      hwloc_backend_sysfs_init(topology, fsroot_path_env);
+      hwloc_backend_linuxfs_init(topology, fsroot_path_env);
     }
   }
 #endif
-#ifdef HWLOC_HAVE_XML
   {
     char *xmlpath_env = getenv("HWLOC_FORCE_XMLFILE");
     if (xmlpath_env) {
@@ -2128,23 +2858,20 @@ hwloc_topology_load (struct hwloc_topology *topology)
       hwloc_backend_xml_init(topology, xmlpath_env, NULL, 0);
     }
   }
-#endif
 
   /* only apply non-FORCE variables if we have not changed the backend yet */
 #ifdef HWLOC_LINUX_SYS
   if (topology->backend_type == HWLOC_BACKEND_NONE) {
     char *fsroot_path_env = getenv("HWLOC_FSROOT");
     if (fsroot_path_env)
-      hwloc_backend_sysfs_init(topology, fsroot_path_env);
+      hwloc_backend_linuxfs_init(topology, fsroot_path_env);
   }
 #endif
-#ifdef HWLOC_HAVE_XML
   if (topology->backend_type == HWLOC_BACKEND_NONE) {
     char *xmlpath_env = getenv("HWLOC_XMLFILE");
     if (xmlpath_env)
       hwloc_backend_xml_init(topology, xmlpath_env, NULL, 0);
   }
-#endif
 
   /* always apply non-FORCE THISSYSTEM since it was explicitly designed to override setups from other backends */
   local_env = getenv("HWLOC_THISSYSTEM");
@@ -2154,10 +2881,15 @@ hwloc_topology_load (struct hwloc_topology *topology)
   /* if we haven't chosen the backend, set the OS-specific one if needed */
   if (topology->backend_type == HWLOC_BACKEND_NONE) {
 #ifdef HWLOC_LINUX_SYS
-    if (hwloc_backend_sysfs_init(topology, "/") < 0)
+    if (hwloc_backend_linuxfs_init(topology, "/") < 0)
       return -1;
 #endif
   }
+
+  /* get distance matrix from the environment are store them (as indexes) in the topology.
+   * indexes will be converted into objects later once the tree will be filled
+   */
+  hwloc_distances_set_from_env(topology);
 
   /* actual topology discovery */
   err = hwloc_discover(topology);
@@ -2175,6 +2907,38 @@ hwloc_topology_load (struct hwloc_topology *topology)
     hwloc_topology_check(topology);
 
   topology->is_loaded = 1;
+  return 0;
+}
+
+int
+hwloc_topology_restrict(struct hwloc_topology *topology, hwloc_const_cpuset_t cpuset, unsigned long flags)
+{
+  hwloc_bitmap_t droppedcpuset, droppednodeset;
+
+  /* make sure we'll keep something in the topology */
+  if (!hwloc_bitmap_intersects(cpuset, topology->levels[0][0]->cpuset)) {
+    errno = EINVAL;
+    return -1;
+  }
+
+  droppedcpuset = hwloc_bitmap_alloc();
+  droppednodeset = hwloc_bitmap_alloc();
+
+  /* drop object based on the reverse of cpuset, and fill the 'dropped' nodeset */
+  hwloc_bitmap_not(droppedcpuset, cpuset);
+  restrict_object(topology, flags, &topology->levels[0][0], droppedcpuset, droppednodeset, 0 /* root cannot be removed */);
+  /* update nodesets according to dropped nodeset */
+  restrict_object_nodeset(topology, &topology->levels[0][0], droppednodeset);
+
+  hwloc_bitmap_free(droppedcpuset);
+  hwloc_bitmap_free(droppednodeset);
+
+  hwloc_connect_children(topology->levels[0][0]);
+  hwloc_connect_levels(topology);
+  propagate_total_memory(topology->levels[0][0]);
+  hwloc_distances_restrict(topology, flags);
+  hwloc_distances_finalize_os(topology);
+  hwloc_distances_finalize_logical(topology);
   return 0;
 }
 
@@ -2248,6 +3012,25 @@ hwloc__check_children(struct hwloc_obj *parent)
     assert(parent->children[j]->sibling_rank == j);
     assert(parent->children[j-1]->next_sibling == parent->children[j]);
     assert(parent->children[j]->prev_sibling == parent->children[j-1]);
+  }
+}
+
+static void
+hwloc__check_children_depth(struct hwloc_topology *topology, struct hwloc_obj *parent)
+{
+  hwloc_obj_t child = NULL;
+  while ((child = hwloc_get_next_child(topology, parent, child)) != NULL) {
+    if (child->type == HWLOC_OBJ_BRIDGE)
+      assert(child->depth == (unsigned) HWLOC_TYPE_DEPTH_BRIDGE);
+    else if (child->type == HWLOC_OBJ_PCI_DEVICE)
+      assert(child->depth == (unsigned) HWLOC_TYPE_DEPTH_PCI_DEVICE);
+    else if (child->type == HWLOC_OBJ_OS_DEVICE)
+      assert(child->depth == (unsigned) HWLOC_TYPE_DEPTH_OS_DEVICE);
+    else if (child->type == HWLOC_OBJ_MISC)
+      assert(child->depth == (unsigned) -1);
+    else if (parent->depth != (unsigned) -1)
+      assert(child->depth > parent->depth);
+    hwloc__check_children_depth(topology, child);
   }
 }
 
@@ -2346,6 +3129,11 @@ hwloc_topology_check(struct hwloc_topology *topology)
     /* bottom-level object must always be PU */
     assert(obj->type == HWLOC_OBJ_PU);
   }
+
+  /* check relative depths */
+  obj = hwloc_get_root_obj(topology);
+  assert(obj->depth == 0);
+  hwloc__check_children_depth(topology, obj);
 }
 
 const struct hwloc_topology_support *

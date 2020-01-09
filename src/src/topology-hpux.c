@@ -1,7 +1,8 @@
 /*
  * Copyright © 2009 CNRS
- * Copyright © 2009-2010 INRIA
+ * Copyright © 2009-2011 inria.  All rights reserved.
  * Copyright © 2009-2010 Université Bordeaux 1
+ * Copyright © 2011 Cisco Systems, Inc.  All rights reserved.
  * See COPYING in top-level directory.
  */
 
@@ -14,10 +15,12 @@
    pthread_pset_bind_np()
  */
 
-#include <private/config.h>
+#include <private/autogen/config.h>
 
 #include <sys/types.h>
+#ifdef HAVE_UNISTD_H
 #include <unistd.h>
+#endif
 #include <string.h>
 #include <errno.h>
 #include <stdio.h>
@@ -238,7 +241,7 @@ hwloc_look_hpux(struct hwloc_topology *topology)
 
   topology->support.discovery->pu = 1;
 
-  hwloc_add_object_info(topology->levels[0][0], "Backend", "HP-UX");
+  hwloc_obj_add_info(topology->levels[0][0], "Backend", "HP-UX");
 }
 
 void

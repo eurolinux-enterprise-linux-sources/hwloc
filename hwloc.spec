@@ -1,23 +1,19 @@
 Summary:   Portable Hardware Locality - portable abstraction of hierarchical architectures
 Name:      hwloc
-Version:   1.1
-Release:   0.1%{?dist}
+Version:   1.5
+Release:   1%{?dist}
 License:   BSD
 Group:     Applications/System
 URL:       http://www.open-mpi.org/projects/hwloc/
-Source0:   http://www.open-mpi.org/software/hwloc/v1.1/downloads/%{name}-%{version}.tar.bz2
-Patch0:    2967_lstopo.patch
-# Patch to the 1.1 fix 2967 http://www.open-mpi.org/software/hwloc/nightly/v1.1/hwloc-1.1rc6r2967.tar.bz2
-# Fix hwloc_bitmap_to_ulong right after allocating the bitmap.
-# Fix the minimum width of NUMA nodes, caches and the legend in the graphical lstopo output.
-# Cleanup error management in hwloc-gather-topology.sh.
-# Add a manpage and usage for hwloc-gather-topology.sh on Linux.
-#
-# Rename hwloc-gather-topology.sh to hwloc-gather-topology to be consistent with the upcoming version 1.2
-BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
-BuildRequires: libX11-devel libxml2-devel cairo-devel
+Source0:   http://www.open-mpi.org/software/hwloc/v1.5/downloads/%{name}-%{version}.tar.bz2
+
+BuildRequires: libX11-devel libxml2-devel cairo-devel ncurses-devel pciutils-devel transfig doxygen w3m
 %ifnarch s390 s390x
+BuildRequires: libibverbs-devel
+%endif
+%ifnarch s390 s390x %{arm}
 BuildRequires: numactl-devel
+##Requires: numactl-libs
 %endif
 
 %description
@@ -44,43 +40,21 @@ Headers and shared object symbolic links for the hwloc.
 
 %prep
 %setup -q
-# Apply patches:
-#
-%patch0 -p1
 
 
 %build
-# There are two options how to get rid of RPATH
-# 1) http://lists.fedoraproject.org/pipermail/packaging/2010-June/007187.html
-# Issues with 2nd approach are
-# Can I do it on all architectures?
-# rpmlint complains about "/usr/lib" in sed command line
-# To be run BEFORE %%configure
-%ifarch ppc64 s390x x86_64 ia64 alpha sparc64
-%{__sed} -i.libdir_syssearch -e '/sys_lib_dlsearch_path_spec/s|/usr/lib |/usr/lib /usr/lib64 /lib /lib64|' configure
-%endif
 
 %configure
-
-# 2) http://fedoraproject.org/wiki/RPath_Packaging_Draft
-# %%{__sed} -i 's|^hardcode_libdir_flag_spec=.*|hardcode_libdir_flag_spec=""|g' libtool
-# %%{__sed} -i 's|^runpath_var=LD_RUN_PATH|runpath_var=DIE_RPATH_DIE|g' libtool
-# To be run AFTER %%configure
-
-
 %{__make} %{?_smp_mflags} V=1
 
 %install
-%{__rm} -rf %{buildroot}
 %{__make} install DESTDIR=%{buildroot} INSTALL="%{__install} -p"
+
+#Fix wrong permition on file hwloc-assembler-remote => I have reported this to upstream already
+%{__chmod} 0755 %{buildroot}%{_bindir}/hwloc-assembler-remote
 
 # We don't ship .la files.
 %{__rm} -rf %{buildroot}%{_libdir}/libhwloc.la
-
-# Rename hwloc-gather-topology.sh to hwloc-gather-topology
-%{__mv} %{buildroot}%{_bindir}/hwloc-gather-topology.sh %{buildroot}%{_bindir}/hwloc-gather-topology
-%{__mv} %{buildroot}%{_mandir}/man1/hwloc-gather-topology.sh.1 %{buildroot}%{_mandir}/man1/hwloc-gather-topology.1
-%{__sed} -i -e's/hwloc-gather-topology.sh/hwloc-gather-topology/ig' %{buildroot}%{_mandir}/man1/hwloc-gather-topology.1
 
 %{__mv} %{buildroot}%{_defaultdocdir}/%{name} %{buildroot}%{_defaultdocdir}/%{name}-%{version}
 %{__cp} -p AUTHORS COPYING NEWS README VERSION %{buildroot}%{_defaultdocdir}/%{name}-%{version}
@@ -88,9 +62,6 @@ Headers and shared object symbolic links for the hwloc.
 
 %check
 %{__make} check
-
-%clean
-%{__rm} -rf %{buildroot}
 
 %post -p /sbin/ldconfig
 
@@ -100,27 +71,78 @@ Headers and shared object symbolic links for the hwloc.
 %defattr(-, root, root, -)
 %{_bindir}/%{name}*
 %{_bindir}/lstopo
+%{_bindir}/lstopo-no-graphics
 %{_mandir}/man7/%{name}*
 %{_mandir}/man1/%{name}*
 %{_mandir}/man1/lstopo*
 %dir %{_datadir}/%{name}
 %{_datadir}/%{name}/%{name}.dtd
+%{_datadir}/%{name}/%{name}-valgrind.supp
 %dir %{_defaultdocdir}/%{name}-%{version}
 %{_defaultdocdir}/%{name}-%{version}/*[^c]
-%{_libdir}/libhwloc*.so.*
+%{_libdir}/libhwloc*so.*
 
 %files devel
 %defattr(-, root, root, -)
 %{_libdir}/pkgconfig/*
-%{_libdir}/libhwloc*.so
 %{_mandir}/man3/*
 %dir %{_includedir}/%{name}
 %{_includedir}/%{name}/*
 %{_includedir}/%{name}.h
 %{_defaultdocdir}/%{name}-%{version}/*c
+%{_libdir}/*.so
 
 
 %changelog
+* Wed Aug 15 2012 Jirka Hladky  <hladky.jiri@gmail.com> - 1.5-1
+- Update to version 1.5
+
+* Thu Jul 19 2012 Fedora Release Engineering <rel-eng@lists.fedoraproject.org> - 1.4.2-2
+- Rebuilt for https://fedoraproject.org/wiki/Fedora_18_Mass_Rebuild
+
+* Tue May 15 2012 Orion Poplawski <orion@cora.nwra.com> - 1.4.2-1
+- Update to version 1.4.2
+
+* Wed Apr 18 2012 Jirka Hladky  <hladky.jiri@gmail.com> - 1.4.1-2
+- Fixed build dependency for s390x
+
+* Mon Apr 16 2012 Jirka Hladky  <hladky.jiri@gmail.com> - 1.4.1-1
+- Update to version 1.4.1
+- BZ812622 - libnuma was splitted out of numactl package
+
+* Thu Apr 12 2012 Dan Horák <dan[at]danny.cz> - 1.4-2
+- no InfiniBand on s390(x)
+
+* Wed Feb 14 2012 Jirka Hladky  <hladky.jiri@gmail.com> - 1.4-1
+- Update to 1.4 release
+
+* Mon Nov 14 2011 Peter Robinson <pbrobinson@fedoraproject.org> - 1.3-1
+- Update build for ARM support
+
+* Sat Oct 15 2011 Jirka Hladky <hladky.jiri@gmail.com> - 1.3-0
+ - 1.3 release
+ - added dependency on libibverbs-devel pciutils-devel
+ - cannot provide support for cuda (cuda_runtime_api.h). 
+ - Nvidia CUDA is free but not open-source therefore not in Fedora.
+
+* Fri Oct 07 2011 Jirka Hladky <hladky.jiri@gmail.com> - 1.2.2-1
+ - moved *.so to the devel package
+ - libhwloc*so* in the main package
+
+* Wed Oct 05 2011 Jirka Hladky <hladky.jiri@gmail.com> - 1.2.2-0
+- 1.2.2 release
+- Fix for BZ https://bugzilla.redhat.com/show_bug.cgi?id=724937 for 32-bit PPC
+
+* Sat Sep 17 2011 Jirka Hladky <hladky.jiri@gmail.com> - 1.2.1-0
+- 1.2.1 release
+- Moved libhwloc*.so* to the main package
+
+* Mon Jun 27 2011 Jirka Hladky <hladky.jiri@gmail.com> - 1.2-0
+- 1.2 release
+
+* Wed Feb 09 2011 Fedora Release Engineering <rel-eng@lists.fedoraproject.org> - 1.1-0.2
+- Rebuilt for https://fedoraproject.org/wiki/Fedora_15_Mass_Rebuild
+
 * Mon Jan  3 2011 Dan Horák <dan[at]danny.cz> - 1.1-0.1
 - fix build on s390(x) where numactl is missing
 

@@ -1,6 +1,7 @@
 .\" -*- nroff -*-
-.\" Copyright © 2010 INRIA
+.\" Copyright © 2010 inria.  All rights reserved.
 .\" Copyright © 2009-2010 Cisco Systems, Inc.  All rights reserved.
+.\" See COPYING in top-level directory.
 .TH HWLOC-DISTRIB "1" "#HWLOC_DATE#" "#PACKAGE_VERSION#" "#PACKAGE_NAME#"
 .SH NAME
 hwloc-distrib \- Build a number of cpu masks distributed on the system
@@ -9,7 +10,7 @@ hwloc-distrib \- Build a number of cpu masks distributed on the system
 .\"    Synopsis Section
 .\" **************************
 .SH SYNOPSIS
-.B topodistrib
+.B hwloc-distrib
 [\fIoptions\fR] \fI<integer>\fR
 .
 .\" **************************
@@ -36,12 +37,14 @@ option to be usable.
 \fB\-i\fR <directory>, \fB\-\-input\fR <directory>
 Read topology from the chroot specified by <directory> (instead of
 discovering the topology on the local machine).  This option is
-generally only available on Linux.
+generally only available on Linux.  The chroot was usually created
+by gathering another machine topology with hwloc-gather-topology.
 .TP
 \fB\-i\fR <specification>, \fB\-\-input\fR <specification>
 Simulate a fake hierarchy (instead of discovering the topology on the
 local machine). If <specification> is "node:2 pu:3", the topology will
 contain two NUMA nodes with 3 processing units in each of them.
+The <specification> string must end with a number of PUs.
 .TP
 \fB\-\-if\fR <format>, \fB\-\-input\-format\fR <format>
 Enforce the input in the given format, among \fBxml\fR, \fBfsroot\fR
@@ -64,6 +67,9 @@ on sockets and not to precise cores or caches.
 \fB\-\-at\fR <type>
 Distribute among objects of the given type.  This is equivalent to specifying
 both \fB\-\-from\fR and \fB\-\-to\fR at the same time.
+.TP
+\fB\-\-restrict\fR <cpuset>
+Restrict the topology to the given cpuset.
 .TP
 \fB\-\-version\fR
 Report version and exit.
@@ -107,6 +113,14 @@ may be obtained with:
     0x000000f0
     0x0000f000
 
+To distribute only among the second socket, the topology should be restricted:
+
+    $ hwloc-distrib --restrict $(hwloc-calc socket:1) 4
+    0x00000010
+    0x00000020
+    0x00000040
+    0x00000080
+
 To get a single processor of each CPU masks (prevent migration in case
 of binding)
 
@@ -149,5 +163,5 @@ hwloc-distrib will return nonzero if any kind of error occurs, such as
 .SH SEE ALSO
 .
 .ft R
-hwloc(7)
+hwloc(7), hwloc-gather-topology(1)
 .sp

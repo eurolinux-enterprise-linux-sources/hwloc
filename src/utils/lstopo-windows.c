@@ -1,7 +1,8 @@
 /*
  * Copyright © 2009 CNRS
- * Copyright © 2009 INRIA
- * Copyright © 2009-2010 Université Bordeaux 1
+ * Copyright © 2009 inria.  All rights reserved.
+ * Copyright © 2009-2010, 2012 Université Bordeaux 1
+ * Copyright © 2011 Cisco Systems, Inc.  All rights reserved.
  * See COPYING in top-level directory.
  */
 
@@ -9,7 +10,9 @@
 
 #include <stdlib.h>
 #include <stdio.h>
+#ifdef HAVE_UNISTD_H
 #include <unistd.h>
+#endif
 #include <string.h>
 
 #include <windows.h>
@@ -49,6 +52,10 @@ static int x, y, x_delta, y_delta;
 static int finish;
 static int the_width, the_height;
 static int win_width, win_height;
+static unsigned int the_fontsize, the_gridsize;
+
+static void
+windows_box(void *output, int r, int g, int b, unsigned depth __hwloc_attribute_unused, unsigned x, unsigned width, unsigned y, unsigned height);
 
 static LRESULT CALLBACK
 WndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
@@ -59,6 +66,7 @@ WndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
       HDC hdc;
       PAINTSTRUCT ps;
       hdc = BeginPaint(hwnd, &ps);
+      windows_box(&ps, 0xff, 0xff, 0xff, 0, 0, win_width, 0, win_height);
       output_draw(&windows_draw_methods, the_logical, the_legend, the_topology, &ps);
       EndPaint(hwnd, &ps);
       break;
@@ -165,6 +173,22 @@ WndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
       x_delta = 0;
     if (y_delta < 0)
       y_delta = 0;
+    if (win_width > the_width && win_height > the_height) {
+      fontsize = the_fontsize;
+      gridsize = the_gridsize;
+      if (win_width > the_width) {
+        fontsize = the_fontsize * win_width / the_width;
+        gridsize = the_gridsize * win_width / the_width;
+      }
+      if (win_height > the_height) {
+        unsigned int new_fontsize = the_fontsize * win_height / the_height;
+        unsigned int new_gridsize = the_gridsize * win_height / the_height;
+	if (new_fontsize < fontsize)
+	  fontsize = new_fontsize;
+	if (new_gridsize < gridsize)
+	  gridsize = new_gridsize;
+      }
+    }
     RedrawWindow(hwnd, NULL, NULL, RDW_INVALIDATE);
   }
   return DefWindowProc(hwnd, message, wparam, lparam);
@@ -173,14 +197,15 @@ WndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
 static void *
 windows_start(void *output_ __hwloc_attribute_unused, int width, int height)
 {
-  WNDCLASS wndclass = {
-    .hbrBackground = (HBRUSH) GetStockObject(WHITE_BRUSH),
-    .hCursor = LoadCursor(NULL, IDC_SIZEALL),
-    .hIcon = LoadIcon(NULL, IDI_APPLICATION),
-    .lpfnWndProc = WndProc,
-    .lpszClassName = "lstopo",
-  };
+  WNDCLASS wndclass;
   HWND toplevel;
+
+  memset(&wndclass, 0, sizeof(wndclass));
+  wndclass.hbrBackground = (HBRUSH) GetStockObject(WHITE_BRUSH);
+  wndclass.hCursor = LoadCursor(NULL, IDC_SIZEALL);
+  wndclass.hIcon = LoadIcon(NULL, IDI_APPLICATION);
+  wndclass.lpfnWndProc = WndProc;
+  wndclass.lpszClassName = "lstopo";
 
   win_width = width + 2*GetSystemMetrics(SM_CXSIZEFRAME);
   win_height = height + 2*GetSystemMetrics(SM_CYSIZEFRAME) + GetSystemMetrics(SM_CYCAPTION);
@@ -198,6 +223,9 @@ windows_start(void *output_ __hwloc_attribute_unused, int width, int height)
 
   the_width = width;
   the_height = height;
+
+  the_fontsize = fontsize;
+  the_gridsize = gridsize;
 
   ShowWindow(toplevel, SW_SHOWDEFAULT);
 
@@ -255,23 +283,23 @@ windows_text(void *output, int r, int g, int b, int size, unsigned depth __hwloc
 }
 
 struct draw_methods windows_draw_methods = {
-  .start = windows_start,
-  .declare_color = windows_declare_color,
-  .box = windows_box,
-  .line = windows_line,
-  .text = windows_text,
+  windows_start,
+  windows_declare_color,
+  windows_box,
+  windows_line,
+  windows_text,
 };
 
 void
 output_windows (hwloc_topology_t topology, const char *filename __hwloc_attribute_unused, int logical, int legend, int verbose_mode __hwloc_attribute_unused)
 {
   HWND toplevel;
+  MSG msg;
   the_topology = topology;
   the_logical = logical;
   the_legend = legend;
   toplevel = output_draw_start(&windows_draw_methods, logical, legend, topology, NULL);
   UpdateWindow(toplevel);
-  MSG msg;
   while (!finish && GetMessage(&msg, NULL, 0, 0)) {
     TranslateMessage(&msg);
     DispatchMessage(&msg);

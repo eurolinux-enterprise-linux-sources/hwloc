@@ -1,7 +1,8 @@
 .\" -*- nroff -*-
-.\" Copyright © 2009-2010 INRIA
+.\" Copyright © 2009-2012 Inria.  All rights reserved.
 .\" Copyright © 2010 Université of Bordeaux
 .\" Copyright © 2009-2010 Cisco Systems, Inc.  All rights reserved.
+.\" See COPYING in top-level directory.
 .TH HWLOC-BIND "1" "#HWLOC_DATE#" "#PACKAGE_VERSION#" "#PACKAGE_NAME#"
 .SH NAME
 hwloc-bind \- Launch a command that is bound to specific processors
@@ -27,26 +28,35 @@ Use following arguments for CPU binding (default).
 .TP
 \fB\-\-membind\fR
 Use following arguments for memory binding.
+If \fB\-\-mempolicy\fR is not also given,
+the default policy is bind.
 .TP
 \fB\-\-mempolicy\fR <policy>
 Change the memory binding policy.
 The available policies are default, firsttouch, bind, interleave
 replicate and nexttouch.
-If a binding set is given, the default policy is bind.
+This option is only meaningful when an actual binding is also given
+with \fB\-\-membind\fR.
+If \fB\-\-membind\fR is given without \fB\-\-mempolicy\fR,
+the default policy is bind.
 .TP
 \fB\-\-get\fR
 Report the current bindings.
 When combined with \fB\-\-membind\fR, report the memory binding
 instead of CPU binding.
 .TP
+\fB\-\-get-last-cpu-location\fR
+Report the last processors where the process ran.
+Note that the result may already be outdated when reported since
+the operating system may move the process to other processors
+at any time according to the binding.
+This option cannot be combined with \fB\-\-membind\fR.
+.TP
 \fB\-\-single\fR
 Bind on a single CPU to prevent migration.
 .TP
 \fB\-\-strict\fR
 Require strict binding.
-.TP
-\fB\-\-get\fR
-Retrieve the current process binding
 .TP
 \fB\-\-pid\fR <pid>
 Operate on pid <pid>
@@ -58,8 +68,10 @@ take OS/physical indexes instead of logical indexes
 take logical indexes instead of physical/OS indexes (default)
 .TP
 \fB\-\-taskset\fR
-Manipulate CPU set strings in the format recognized by the taskset command-line
+Display CPU set strings in the format recognized by the taskset command-line
 program instead of hwloc-specific CPU set string format.
+This option has no impact on the format of input CPU set strings,
+both formats are always accepted.
 .TP
 \fB\-v\fR
 Verbose output.
@@ -139,6 +151,18 @@ To run on the first socket, except on its second and fifth cores:
 
     hwloc-bind socket:0 ~socket:0.core:1 ~socket:0.core:4 echo hello
 
+To run anywhere except on the first socket:
+
+    hwloc-bind all ~socket:0 echo hello
+
+To run on a core near the network interface named eth0:
+
+    hwloc-bind os=eth0 echo hello
+
+To run on a core near the PCI device whose bus ID is 0000:01:02.0:
+
+    hwloc-bind pci=0000:01:02.0 echo hello
+
 To bind memory on second memory node and run on first node (when supported by the OS):
 
     hwloc-bind --cpubind node:1 --membind node:0 echo hello
@@ -168,6 +192,13 @@ This returns a string describing the memory binding, such as "0x000000f0
 (interleave)".  Note that if the system does not contain any NUMA
 nodes, the reported string will indicate that the process is bound to
 the entire system memory (e.g., "0xf...f").
+.SH HINT
+If the graphics-enabled lstopo is available, use for instance
+
+    hwloc-bind core:2 -- lstopo --pid 0
+
+to check what the result of your binding command actually is.
+lstopo will graphically show where it is bound to by hwloc-bind.
 .
 .\" **************************
 .\"    Return value section

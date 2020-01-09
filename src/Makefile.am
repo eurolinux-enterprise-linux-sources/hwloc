@@ -1,6 +1,7 @@
-# Copyright © 2009      INRIA
+# Copyright © 2009      inria.  All rights reserved.
 # Copyright © 2009      Université Bordeaux 1
 # Copyright © 2009-2010 Cisco Systems, Inc.  All rights reserved.
+# See COPYING in top-level directory.
 
 # Note that the -I directory must *exactly* match what was specified
 # via AC_CONFIG_MACRO_DIR in configure.ac.
@@ -19,6 +20,11 @@ DIST_SUBDIRS = $(SUBDIRS)
 if HWLOC_BUILD_STANDALONE
 pkgconfigdir = $(libdir)/pkgconfig
 pkgconfig_DATA = hwloc.pc
+endif
+
+# Only install the valgrind suppressions file if we're building in standalone mode
+if HWLOC_BUILD_STANDALONE
+dist_pkgdata_DATA = contrib/hwloc-valgrind.supp
 endif
 
 #
@@ -64,4 +70,16 @@ if HWLOC_BUILD_STANDALONE
 .PHONY: doc readme
 doc readme:
 	$(MAKE) -C doc readme
+endif HWLOC_BUILD_STANDALONE
+
+#
+# Winball specific rules, to be manually run after make install
+#
+if HWLOC_BUILD_STANDALONE
+.PHONY: install-winball
+install-winball:
+	sed -e 's/$$/'$$'\015'/ < $(srcdir)/README > $(prefix)/README.txt
+	sed -e 's/$$/'$$'\015'/ < $(srcdir)/NEWS > $(prefix)/NEWS.txt
+	sed -e 's/$$/'$$'\015'/ < $(srcdir)/COPYING > $(prefix)/COPYING.txt
+	$(RM) $(pkgconfigdir)/hwloc.pc
 endif HWLOC_BUILD_STANDALONE
