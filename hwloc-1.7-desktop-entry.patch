@@ -1,0 +1,54 @@
+Combination of the following two patches.
+
+commit d247110e60d3ba009c038a74e1f2b70bb1ba6a01
+Author: Samuel Thibault <samuel.thibault@ens-lyon.org>
+Date:   Wed Aug 20 00:24:19 2014 +0200
+
+    Add hwloc-ls.desktop file for start menu integration in gnome/KDE
+
+
+commit 04c67994f0410a5c6eda61fdb3e89e75e00848ba
+Author: Brice Goglin <Brice.Goglin@inria.fr>
+Date:   Wed Oct 8 11:27:12 2014 +0200
+
+    Change hwloc-ls.desktop in lstopo.desktop and only install if graphical
+    
+    hwloc-ls doesn't always point to a graphical lstopo, while hwloc-ls.desktop
+    wants a graphical application. Use lstopo instead (the change is invisible
+    from the menu) and don't install it unless lstopo has Cairo support.
+    
+    By the way, fix some issues in the desktop file (Categories Application
+    is deprecated, comment should be Comment).
+    Thanks to Jirka Hladky for reporting these issues.
+
+diff -Nrup hwloc-1.7.orig/utils/lstopo.desktop hwloc-1.7/utils/lstopo.desktop
+--- hwloc-1.7.orig/utils/lstopo.desktop	1969-12-31 19:00:00.000000000 -0500
++++ hwloc-1.7/utils/lstopo.desktop	2015-07-14 16:08:07.451934042 -0400
+@@ -0,0 +1,10 @@
++# should only be used when lstopo is built with Cairo/X11 support
++# so that no terminal is required
++[Desktop Entry]
++Name=Hardware Locality lstopo
++Comment=Show hardware topology
++Exec=lstopo
++Terminal=false
++Type=Application
++Categories=System;
++Keywords=System;Utility;
+diff -Nrup hwloc-1.7.orig/utils/Makefile.am hwloc-1.7/utils/Makefile.am
+--- hwloc-1.7.orig/utils/Makefile.am	2015-07-14 16:06:07.752411827 -0400
++++ hwloc-1.7/utils/Makefile.am	2015-07-14 16:08:07.451934042 -0400
+@@ -70,6 +70,13 @@ if HWLOC_HAVE_LINUX
+ nodist_man_MANS += $(hgt_page)
+ endif HWLOC_HAVE_LINUX
+ 
++if HWLOC_HAVE_CAIRO
++# only installed when lstopo is built with Cairo/X11 support
++# so that no terminal is required
++APPLICATIONSdir = @datarootdir@/applications
++dist_APPLICATIONS_DATA = lstopo.desktop
++endif
++
+ .1in.1:
+ 	@ echo Creating $@ man page...
+ 	@ $(SED) -e 's/#PACKAGE_NAME#/@PACKAGE_NAME@/g' \

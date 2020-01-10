@@ -1,16 +1,20 @@
 Summary:   Portable Hardware Locality - portable abstraction of hierarchical architectures
 Name:      hwloc
 Version:   1.7
-Release:   3%{?dist}
+Release:   5%{?dist}
 License:   BSD
 Group:     Applications/System
 URL:       http://www.open-mpi.org/projects/hwloc/
 Source0:   http://www.open-mpi.org/software/hwloc/v1.7/downloads/%{name}-%{version}.tar.bz2
 Patch0:    hwloc-1.7.patch
 Patch1:    hwloc-1.7-manpage.patch
+Patch2:    hwloc-1.7-lstopo-manpage.patch
+Patch3:    hwloc-1.7-desktop-entry.patch
+Patch4:    hwloc-1.7-xeon-phi.patch
 Requires:  %{name}-libs = %{version}-%{release} 
 
 BuildRequires: libX11-devel libxml2-devel cairo-devel ncurses-devel libpciaccess-devel transfig doxygen texlive-latex texlive-makeindex libtool-ltdl-devel autoconf automake libtool
+BuildRequires: desktop-file-utils
 %ifnarch s390 s390x
 BuildRequires: libibverbs-devel
 %endif
@@ -60,6 +64,9 @@ GUI-based tool for displaying system topology information.
 %setup -q
 %patch0 -p1
 %patch1 -p1
+%patch2 -p1
+%patch3 -p1
+%patch4 -p1
 
 %build
 autoreconf --force --install
@@ -80,6 +87,7 @@ autoreconf --force --install
 %{__mv} %{buildroot}%{_defaultdocdir}/%{name} %{buildroot}%{_defaultdocdir}/%{name}-%{version}
 %{__cp} -p AUTHORS COPYING NEWS README VERSION %{buildroot}%{_defaultdocdir}/%{name}-%{version}
 %{__cp} -p doc/hwloc-hello.c %{buildroot}%{_defaultdocdir}/%{name}-%{version}
+desktop-file-validate %{buildroot}/%{_datadir}/applications/lstopo.desktop
 
 %check
 %{__make} check
@@ -118,9 +126,20 @@ autoreconf --force --install
 %files gui
 %{_bindir}/lstopo
 %{_mandir}/man1/lstopo.*
+%{_datadir}/applications/lstopo.desktop
 
 
 %changelog
+* Tue Jul 14 2015 Don Zickus <dzickus@redhat.com> - 1.7-5
+- Xeon Phi fixes
+  Resolves: rhbz1227786
+
+* Tue Jul 14 2015 Don Zickus <dzickus@redhat.com> - 1.7-4
+- Fix dangling symlink for hwloc-ls manpage
+  Resolves: rhbz1081236
+  Add desktop entry for lstopo
+  Resolves: rhbz1229313
+
 * Fri Jan 24 2014 Daniel Mach <dmach@redhat.com> - 1.7-3
 - Mass rebuild 2014-01-24
 

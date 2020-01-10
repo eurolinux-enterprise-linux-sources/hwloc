@@ -1,0 +1,54 @@
+Combination of the following two upstream patches to make
+Xeon Phi work correctly.
+
+
+commit ca535e7eb7cd1df884189a36949499d17c297456
+Author: Brice Goglin <Brice.Goglin@inria.fr>
+Date:   Thu Apr 30 16:25:05 2015 +0200
+
+    x86: CPUID 0x1b is actually supported when we have the x2apic feature
+    
+    Thanks to Grzegorz Andrejczuk and Lukasz Anaczkowski.
+
+
+commit 2119a8b499f73c2759380ccbad89bc4c0c297f11
+Author: Brice Goglin <Brice.Goglin@inria.fr>
+Date:   Thu Apr 30 16:27:24 2015 +0200
+
+    x86: Also get the real APIC ID from the x2APIC code
+    
+    This fixes support for the upcoming Knights Landing Xeon Phi.
+    
+    Thanks to Grzegorz Andrejczuk and Lukasz Anaczkowski.
+
+diff -Nrup hwloc-1.7.orig/src/topology-x86.c hwloc-1.7/src/topology-x86.c
+--- hwloc-1.7.orig/src/topology-x86.c	2013-03-26 16:00:17.000000000 -0400
++++ hwloc-1.7/src/topology-x86.c	2015-07-14 16:59:47.457390618 -0400
+@@ -23,6 +23,7 @@
+ #include <private/cpuid.h>
+ 
+ #define has_topoext(features) ((features)[6] & (1 << 22))
++#define has_x2apic(features) ((features)[4] & (1 << 21))
+ 
+ struct cacheinfo {
+   unsigned type;
+@@ -301,7 +302,7 @@ static void look_proc(struct procinfo *i
+     }
+   }
+ 
+-  if (cpuid_type == intel && highest_cpuid >= 0x0b) {
++  if (cpuid_type == intel && has_x2apic(features)) {
+     unsigned level, apic_nextshift, apic_number, apic_type, apic_id = 0, apic_shift = 0, id;
+     for (level = 0; ; level++) {
+       ecx = level;
+@@ -341,8 +342,10 @@ static void look_proc(struct procinfo *i
+ 	}
+ 	apic_shift = apic_nextshift;
+       }
++      infos->apicid = apic_id;
+       infos->socketid = apic_id >> apic_shift;
+       hwloc_debug("x2APIC remainder: %d\n", infos->socketid);
++      hwloc_debug("this is thread %u of core %u\n", infos->threadid, infos->coreid);
+     } else
+       infos->otherids = NULL;
+   } else
