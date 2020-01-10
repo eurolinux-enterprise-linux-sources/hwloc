@@ -1,6 +1,6 @@
 /*
  * Copyright © 2009 CNRS
- * Copyright © 2009-2015 Inria.  All rights reserved.
+ * Copyright © 2009-2017 Inria.  All rights reserved.
  * Copyright © 2009-2011, 2013 Université Bordeaux
  * Copyright © 2014 Cisco Systems, Inc.  All rights reserved.
  * Copyright © 2015      Research Organization for Information Science
@@ -22,7 +22,6 @@
 #include <string.h>
 #include <assert.h>
 #include <stdarg.h>
-#include <setjmp.h>
 #ifdef HWLOC_LINUX_SYS
 #include <dirent.h>
 #endif
@@ -265,24 +264,27 @@ hwloc_look_pci(struct hwloc_backend *backend)
     while ((dirent = readdir(dir)) != NULL) {
       char path[64];
       FILE *file;
+      int err;
       if (dirent->d_name[0] == '.')
 	continue;
-      snprintf(path, sizeof(path), "/sys/bus/pci/slots/%s/address", dirent->d_name);
-      file = fopen(path, "r");
-      if (file) {
-	unsigned domain, bus, dev;
-	if (fscanf(file, "%x:%x:%x", &domain, &bus, &dev) == 3) {
-	  hwloc_obj_t obj = first_obj;
-	  while (obj) {
-	    if (obj->attr->pcidev.domain == domain
-		&& obj->attr->pcidev.bus == bus
-		&& obj->attr->pcidev.dev == dev) {
-	      hwloc_obj_add_info(obj, "PCISlot", dirent->d_name);
+      err = snprintf(path, sizeof(path), "/sys/bus/pci/slots/%s/address", dirent->d_name);
+      if ((size_t) err < sizeof(path)) {
+	file = fopen(path, "r");
+	if (file) {
+	  unsigned domain, bus, dev;
+	  if (fscanf(file, "%x:%x:%x", &domain, &bus, &dev) == 3) {
+	    hwloc_obj_t obj = first_obj;
+	    while (obj) {
+	      if (obj->attr->pcidev.domain == domain
+		  && obj->attr->pcidev.bus == bus
+		  && obj->attr->pcidev.dev == dev) {
+		hwloc_obj_add_info(obj, "PCISlot", dirent->d_name);
+	      }
+	      obj = obj->next_sibling;
 	    }
-	    obj = obj->next_sibling;
 	  }
+	  fclose(file);
 	}
-	fclose(file);
       }
     }
     closedir(dir);

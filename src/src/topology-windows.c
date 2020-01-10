@@ -1,6 +1,6 @@
 /*
  * Copyright © 2009 CNRS
- * Copyright © 2009-2015 Inria.  All rights reserved.
+ * Copyright © 2009-2017 Inria.  All rights reserved.
  * Copyright © 2009-2012 Université Bordeaux
  * Copyright © 2011 Cisco Systems, Inc.  All rights reserved.
  * See COPYING in top-level directory.
@@ -229,8 +229,6 @@ static PFN_QUERYWORKINGSETEX QueryWorkingSetExProc;
 
 static void hwloc_win_get_function_ptrs(void)
 {
-  static int done = 0;
-  if (!done) {
     HMODULE kernel32;
 
     kernel32 = LoadLibrary("kernel32.dll");
@@ -271,9 +269,6 @@ static void hwloc_win_get_function_ptrs(void)
       if (psapi)
         VirtualAllocExNumaProc = (PFN_VIRTUALALLOCEXNUMA) GetProcAddress(psapi, "QueryWorkingSetEx");
     }
-
-    done = 1;
-  }
 }
 
 /*
@@ -454,7 +449,8 @@ hwloc_win_set_thisthread_membind(hwloc_topology_t topology, hwloc_const_nodeset_
 
   cpuset = hwloc_bitmap_alloc();
   hwloc_cpuset_from_nodeset(topology, cpuset, nodeset);
-  ret = hwloc_win_set_thisthread_cpubind(topology, cpuset, flags & HWLOC_MEMBIND_STRICT?HWLOC_CPUBIND_STRICT:0);
+  ret = hwloc_win_set_thisthread_cpubind(topology, cpuset,
+					 (flags & HWLOC_MEMBIND_STRICT) ? HWLOC_CPUBIND_STRICT : 0);
   hwloc_bitmap_free(cpuset);
   return ret;
 }
@@ -551,7 +547,8 @@ hwloc_win_set_proc_membind(hwloc_topology_t topology, hwloc_pid_t pid, hwloc_con
 
   cpuset = hwloc_bitmap_alloc();
   hwloc_cpuset_from_nodeset(topology, cpuset, nodeset);
-  ret = hwloc_win_set_proc_cpubind(topology, pid, cpuset, flags & HWLOC_MEMBIND_STRICT?HWLOC_CPUBIND_STRICT:0);
+  ret = hwloc_win_set_proc_cpubind(topology, pid, cpuset,
+				   (flags & HWLOC_MEMBIND_STRICT) ? HWLOC_CPUBIND_STRICT : 0);
   hwloc_bitmap_free(cpuset);
   return ret;
 }
@@ -600,7 +597,8 @@ hwloc_win_get_proc_membind(hwloc_topology_t topology, hwloc_pid_t pid, hwloc_nod
 {
   int ret;
   hwloc_cpuset_t cpuset = hwloc_bitmap_alloc();
-  ret = hwloc_win_get_proc_cpubind(topology, pid, cpuset, flags & HWLOC_MEMBIND_STRICT?HWLOC_CPUBIND_STRICT:0);
+  ret = hwloc_win_get_proc_cpubind(topology, pid, cpuset,
+				   (flags & HWLOC_MEMBIND_STRICT) ? HWLOC_CPUBIND_STRICT : 0);
   if (!ret) {
     *policy = HWLOC_MEMBIND_BIND;
     hwloc_cpuset_to_nodeset(topology, cpuset, nodeset);
@@ -737,8 +735,6 @@ hwloc_look_windows(struct hwloc_backend *backend)
   SYSTEM_INFO SystemInfo;
   DWORD length;
 
-  hwloc_win_get_function_ptrs();
-
   if (topology->levels[0][0]->cpuset)
     /* somebody discovered things */
     return 0;
@@ -748,7 +744,7 @@ hwloc_look_windows(struct hwloc_backend *backend)
   GetSystemInfo(&SystemInfo);
 
   if (!GetLogicalProcessorInformationExProc && GetLogicalProcessorInformationProc) {
-      PSYSTEM_LOGICAL_PROCESSOR_INFORMATION procInfo;
+      PSYSTEM_LOGICAL_PROCESSOR_INFORMATION procInfo, tmpprocInfo;
       unsigned id;
       unsigned i;
       struct hwloc_obj *obj;
@@ -762,7 +758,12 @@ hwloc_look_windows(struct hwloc_backend *backend)
 	  break;
 	if (GetLastError() != ERROR_INSUFFICIENT_BUFFER)
 	  return -1;
-	procInfo = realloc(procInfo, length);
+	tmpprocInfo = realloc(procInfo, length);
+	if (!tmpprocInfo) {
+	  free(procInfo);
+	  goto out;
+	}
+	procInfo = tmpprocInfo;
       }
 
       assert(!length || procInfo);
@@ -818,7 +819,7 @@ hwloc_look_windows(struct hwloc_backend *backend)
 	      memset(obj->memory.page_types, 0, 2 * sizeof(*obj->memory.page_types));
 	      obj->memory.page_types_len = 1;
 	      obj->memory.page_types[0].size = SystemInfo.dwPageSize;
-#ifdef HAVE__SC_LARGE_PAGESIZE
+#if HAVE_DECL__SC_LARGE_PAGESIZE
 	      obj->memory.page_types_len++;
 	      obj->memory.page_types[1].size = sysconf(_SC_LARGE_PAGESIZE);
 #endif
@@ -857,8 +858,7 @@ hwloc_look_windows(struct hwloc_backend *backend)
   }
 
   if (GetLogicalProcessorInformationExProc) {
-      PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX procInfoTotal, procInfo;
-
+      PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX procInfoTotal, tmpprocInfoTotal, procInfo;
       unsigned id;
       struct hwloc_obj *obj;
       hwloc_obj_type_t type;
@@ -871,7 +871,12 @@ hwloc_look_windows(struct hwloc_backend *backend)
 	  break;
 	if (GetLastError() != ERROR_INSUFFICIENT_BUFFER)
 	  return -1;
-        procInfoTotal = realloc(procInfoTotal, length);
+        tmpprocInfoTotal = realloc(procInfoTotal, length);
+	if (!tmpprocInfoTotal) {
+	  free(procInfoTotal);
+	  goto out;
+	}
+	procInfoTotal = tmpprocInfoTotal;
       }
 
       for (procInfo = procInfoTotal;
@@ -959,7 +964,7 @@ hwloc_look_windows(struct hwloc_backend *backend)
 	      memset(obj->memory.page_types, 0, 2 * sizeof(*obj->memory.page_types));
 	      obj->memory.page_types_len = 1;
 	      obj->memory.page_types[0].size = SystemInfo.dwPageSize;
-#ifdef HAVE__SC_LARGE_PAGESIZE
+#if HAVE_DECL__SC_LARGE_PAGESIZE
 	      obj->memory.page_types_len++;
 	      obj->memory.page_types[1].size = sysconf(_SC_LARGE_PAGESIZE);
 #endif
@@ -1025,6 +1030,7 @@ hwloc_look_windows(struct hwloc_backend *backend)
       }
   }
 
+ out:
   hwloc_obj_add_info(topology->levels[0][0], "Backend", "Windows");
   if (topology->is_thissystem)
     hwloc_add_uname_info(topology, NULL);
@@ -1035,8 +1041,6 @@ void
 hwloc_set_windows_hooks(struct hwloc_binding_hooks *hooks,
 			struct hwloc_topology_support *support)
 {
-  hwloc_win_get_function_ptrs();
-
   if (GetCurrentProcessorNumberExProc || (GetCurrentProcessorNumberProc && nr_processor_groups == 1))
     hooks->get_thisthread_last_cpu_location = hwloc_win_get_thisthread_last_cpu_location;
 
@@ -1072,6 +1076,16 @@ hwloc_set_windows_hooks(struct hwloc_binding_hooks *hooks,
     hooks->get_area_membind = hwloc_win_get_area_membind;
 }
 
+static int hwloc_windows_component_init(unsigned long flags __hwloc_attribute_unused)
+{
+  hwloc_win_get_function_ptrs();
+  return 0;
+}
+
+static void hwloc_windows_component_finalize(unsigned long flags __hwloc_attribute_unused)
+{
+}
+
 static struct hwloc_backend *
 hwloc_windows_component_instantiate(struct hwloc_disc_component *component,
 				    const void *_data1 __hwloc_attribute_unused,
@@ -1097,7 +1111,7 @@ static struct hwloc_disc_component hwloc_windows_disc_component = {
 
 const struct hwloc_component hwloc_windows_component = {
   HWLOC_COMPONENT_ABI,
-  NULL, NULL,
+  hwloc_windows_component_init, hwloc_windows_component_finalize,
   HWLOC_COMPONENT_TYPE_DISC,
   0,
   &hwloc_windows_disc_component
@@ -1111,8 +1125,6 @@ hwloc_fallback_nbprocessors(struct hwloc_topology *topology) {
   /* by default, ignore groups (return only the number in the current group) */
   GetSystemInfo(&sysinfo);
   n = sysinfo.dwNumberOfProcessors; /* FIXME could be non-contigous, rather return a mask from dwActiveProcessorMask? */
-
-  hwloc_win_get_function_ptrs();
 
   if (nr_processor_groups > 1) {
     /* assume n-1 groups are complete, since that's how we store things in cpusets */

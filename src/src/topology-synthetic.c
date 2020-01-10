@@ -1,6 +1,6 @@
 /*
  * Copyright © 2009 CNRS
- * Copyright © 2009-2015 Inria.  All rights reserved.
+ * Copyright © 2009-2017 Inria.  All rights reserved.
  * Copyright © 2009-2010 Université Bordeaux
  * Copyright © 2009-2011 Cisco Systems, Inc.  All rights reserved.
  * See COPYING in top-level directory.
@@ -81,7 +81,7 @@ hwloc_synthetic_process_level_indexes(struct hwloc_synthetic_backend_data_s *dat
       unsigned idx = strtoul(attr, (char **) &next, 10);
       if (next == attr) {
 	if (verbose)
-	  fprintf(stderr, "Failed to read synthetic index #%lu at '%s'\n", i, attr);
+	  fprintf(stderr, "Failed to read synthetic index #%lu at '%s'\n", (unsigned long) i, attr);
 	goto out_with_array;
       }
 
@@ -89,7 +89,7 @@ hwloc_synthetic_process_level_indexes(struct hwloc_synthetic_backend_data_s *dat
       if (i != total-1) {
 	if (*next != ',') {
 	  if (verbose)
-	    fprintf(stderr, "Missing comma after synthetic index #%lu at '%s'\n", i, attr);
+	    fprintf(stderr, "Missing comma after synthetic index #%lu at '%s'\n", (unsigned long) i, attr);
 	  goto out_with_array;
 	}
 	attr = next+1;
@@ -870,7 +870,7 @@ static int hwloc_topology_export_synthetic_indexes(struct hwloc_topology * topol
   unsigned total = topology->level_nbobjects[depth];
   unsigned step = 1;
   unsigned nr_loops = 0;
-  struct hwloc_synthetic_intlv_loop_s *loops = NULL;
+  struct hwloc_synthetic_intlv_loop_s *loops = NULL, *tmploops;
   hwloc_obj_t cur;
   unsigned i, j;
   ssize_t tmplen = buflen;
@@ -897,9 +897,10 @@ static int hwloc_topology_export_synthetic_indexes(struct hwloc_topology * topol
 	break;
 
     nr_loops++;
-    loops = realloc(loops, nr_loops*sizeof(*loops));
-    if (!loops)
+    tmploops = realloc(loops, nr_loops*sizeof(*loops));
+    if (!tmploops)
       goto exportall;
+    loops = tmploops;
     loops[nr_loops-1].step = i;
     loops[nr_loops-1].nb = j;
     step *= j;
@@ -1036,7 +1037,7 @@ hwloc_topology_export_synthetic(struct hwloc_topology * topology,
   ssize_t tmplen = buflen;
   char *tmp = buffer;
   int res, ret = 0;
-   int arity;
+  unsigned arity;
   const char * separator = " ";
   const char * prefix = "";
 
