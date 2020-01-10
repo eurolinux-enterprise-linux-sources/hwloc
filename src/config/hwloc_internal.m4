@@ -1,15 +1,16 @@
 dnl -*- Autoconf -*-
 dnl
-dnl Copyright © 2010-2017 Inria.  All rights reserved.
-dnl Copyright © 2009, 2011 Université Bordeaux
-dnl Copyright © 2004-2005 The Trustees of Indiana University and Indiana
+dnl Copyright (c) 2009-2012 Inria.  All rights reserved.
+dnl Copyright (c) 2009, 2011 Université Bordeaux 1
+dnl Copyright (c) 2004-2005 The Trustees of Indiana University and Indiana
 dnl                         University Research and Technology
 dnl                         Corporation.  All rights reserved.
-dnl Copyright © 2004-2005 The Regents of the University of California.
+dnl Copyright (c) 2004-2005 The Regents of the University of California.
 dnl                         All rights reserved.
-dnl Copyright © 2004-2008 High Performance Computing Center Stuttgart,
+dnl Copyright (c) 2004-2008 High Performance Computing Center Stuttgart, 
 dnl                         University of Stuttgart.  All rights reserved.
-dnl Copyright © 2006-2014 Cisco Systems, Inc.  All rights reserved.
+dnl Copyright © 2010-2012 Inria.  All rights reserved.
+dnl Copyright © 2006-2011 Cisco Systems, Inc.  All rights reserved.
 dnl
 dnl See COPYING in top-level directory.
 
@@ -51,23 +52,21 @@ AC_DEFUN([HWLOC_DEFINE_ARGS],[
 
     # Cairo?
     AC_ARG_ENABLE([cairo],
-                  AS_HELP_STRING([--disable-cairo],
+                  AS_HELP_STRING([--disable-cairo], 
                                  [Disable the Cairo back-end of hwloc's lstopo command]))
-
-    # CPUID
-    AC_ARG_ENABLE([cpuid],
-		  AS_HELP_STRING([--disable-cpuid],
-				 [Disable the cpuid-based architecture specific support (x86 component)]))
 
     # XML using libxml2?
     AC_ARG_ENABLE([libxml2],
-                  AS_HELP_STRING([--disable-libxml2],
+                  AS_HELP_STRING([--disable-libxml2], 
 		                 [Do not use libxml2 for XML support, use a custom minimalistic support]))
 
     # PCI?
     AC_ARG_ENABLE([pci],
                   AS_HELP_STRING([--disable-pci],
                                  [Disable the PCI device discovery]))
+    AC_ARG_ENABLE([libpci],
+		  AS_HELP_STRING([--enable-libpci],
+				 [Use libpci for PCI support. Note that hwloc may be tainted by the pciutils GPL license.]))
 
     # OpenCL?
     AC_ARG_ENABLE([opencl],
@@ -94,11 +93,6 @@ AC_DEFUN([HWLOC_DEFINE_ARGS],[
                   AS_HELP_STRING([--disable-libnuma],
                                  [Disable the Linux libnuma]))
 
-    # LibUdev
-    AC_ARG_ENABLE([libudev],
-                  AS_HELP_STRING([--disable-libudev],
-                                 [Disable the Linux libudev]))
-
     # Plugins
     AC_ARG_ENABLE([plugins],
                   AS_HELP_STRING([--enable-plugins=name,...],
@@ -122,27 +116,25 @@ AC_DEFUN([HWLOC_SETUP_DOCS],[
 EOF
 
     AC_MSG_CHECKING([if this is a developer build])
-    AS_IF([test ! -d "$srcdir/.hg" -a ! -d "$srcdir/.git"],
-          [AC_MSG_RESULT([no (doxygen generation is optional)])
-	   test "x$enable_doxygen" = x && enable_doxygen=no],
-          [AC_MSG_RESULT([yes])
-	   test "x$enable_doxygen" = x && enable_doxygen=yes])
-
+    AS_IF([test ! -d "$srcdir/.svn" -a ! -d "$srcdir/.hg" -a ! -d "$srcdir/.git"],
+          [AC_MSG_RESULT([no (doxygen generation is optional)])],
+          [AC_MSG_RESULT([yes])])
+    
     # Generating the doxygen output requires a few tools.  If we
     # don't have all of them, refuse the build the docs.
     AC_ARG_VAR([DOXYGEN], [Location of the doxygen program (required for building the hwloc doxygen documentation)])
     AC_PATH_TOOL([DOXYGEN], [doxygen])
     HWLOC_DOXYGEN_VERSION=`doxygen --version 2> /dev/null`
-
+    
     AC_ARG_VAR([PDFLATEX], [Location of the pdflatex program (required for building the hwloc doxygen documentation)])
     AC_PATH_TOOL([PDFLATEX], [pdflatex])
-
+    
     AC_ARG_VAR([MAKEINDEX], [Location of the makeindex program (required for building the hwloc doxygen documentation)])
     AC_PATH_TOOL([MAKEINDEX], [makeindex])
-
+    
     AC_ARG_VAR([FIG2DEV], [Location of the fig2dev program (required for building the hwloc doxygen documentation)])
     AC_PATH_TOOL([FIG2DEV], [fig2dev])
-
+    
     AC_ARG_VAR([GS], [Location of the gs program (required for building the hwloc doxygen documentation)])
     AC_PATH_TOOL([GS], [gs])
 
@@ -155,15 +147,29 @@ EOF
     AC_MSG_RESULT([$hwloc_generate_doxs])
     AS_IF([test "x$hwloc_generate_doxs" = xyes -a "x$HWLOC_DOXYGEN_VERSION" = x1.6.2],
                  [hwloc_generate_doxs="no"; AC_MSG_WARN([doxygen 1.6.2 has broken short name support, disabling])])
-
-    AC_REQUIRE([AC_PROG_SED])
+    
+    # Linux and OS X take different sed arguments.
+    AC_PROG_SED
+    AC_MSG_CHECKING([if the sed -i option requires an argument])
+    rm -f conftest
+    cat > conftest <<EOF
+hello
+EOF
+    $SED -i -e s/hello/goodbye/ conftest 2> /dev/null
+    AS_IF([test -f conftest-e],
+          [SED_I="$SED -i ''"
+           AC_MSG_RESULT([yes])],
+          [SED_I="$SED -i"
+           AC_MSG_RESULT([no])])
+    rm -f conftest conftest-e
+    AC_SUBST([SED_I])
 
     # Making the top-level README requires w3m or lynx.
     AC_ARG_VAR([W3M], [Location of the w3m program (required to building the top-level hwloc README file)])
     AC_PATH_TOOL([W3M], [w3m])
     AC_ARG_VAR([LYNX], [Location of the lynx program (required to building the top-level hwloc README file)])
     AC_PATH_TOOL([LYNX], [lynx])
-
+    
     AC_MSG_CHECKING([if can build top-level README])
     AS_IF([test "x$W3M" != "x"],
           [hwloc_generate_readme=yes
@@ -174,30 +180,30 @@ EOF
                  [hwloc_generate_readme=no])])
     AC_SUBST(HWLOC_W3_GENERATOR)
     AC_MSG_RESULT([$hwloc_generate_readme])
-
+    
     # If any one of the above tools is missing, we will refuse to make dist.
     AC_MSG_CHECKING([if will build doxygen docs])
     AS_IF([test "x$hwloc_generate_doxs" = "xyes" -a "x$enable_doxygen" != "xno"],
           [], [hwloc_generate_doxs=no])
     AC_MSG_RESULT([$hwloc_generate_doxs])
-
+    
     # See if we want to install the doxygen docs
     AC_MSG_CHECKING([if will install doxygen docs])
     AS_IF([test "x$hwloc_generate_doxs" = "xyes" -o \
-	    -f "$srcdir/doc/doxygen-doc/man/man3/hwloc_distrib.3" -a \
+    	    -f "$srcdir/doc/doxygen-doc/man/man3/hwloc_distribute.3" -a \
     	    -f "$srcdir/doc/doxygen-doc/hwloc-a4.pdf" -a \
     	    -f "$srcdir/doc/doxygen-doc/hwloc-letter.pdf"],
           [hwloc_install_doxs=yes],
           [hwloc_install_doxs=no])
     AC_MSG_RESULT([$hwloc_install_doxs])
-
+    
     # For the common developer case, if we're in a developer checkout and
     # using the GNU compilers, turn on maximum warnings unless
     # specifically disabled by the user.
     AC_MSG_CHECKING([whether to enable "picky" compiler mode])
     hwloc_want_picky=0
     AS_IF([test "$hwloc_c_vendor" = "gnu"],
-          [AS_IF([test -d "$srcdir/.hg" -o -d "$srcdir/.git"],
+          [AS_IF([test -d "$srcdir/.svn" -o -d "$srcdir/.hg" -o -d "$srcdir/.git"],
                  [hwloc_want_picky=1])])
     if test "$enable_picky" = "yes"; then
         if test "$GCC" = "yes"; then
@@ -221,7 +227,7 @@ EOF
     if test "$hwloc_want_picky" = 1; then
         add="-Wall -Wunused-parameter -Wundef -Wno-long-long -Wsign-compare"
         add="$add -Wmissing-prototypes -Wstrict-prototypes"
-        add="$add -Wcomment -pedantic -Wshadow"
+        add="$add -Wcomment -pedantic"
 
         HWLOC_CFLAGS="$HWLOC_CFLAGS $add"
     fi
@@ -229,7 +235,6 @@ EOF
     # Generate some files for the docs
     AC_CONFIG_FILES(
         hwloc_config_prefix[doc/Makefile]
-        hwloc_config_prefix[doc/examples/Makefile]
         hwloc_config_prefix[doc/doxygen-config.cfg])
 ])
 
@@ -244,24 +249,39 @@ AC_DEFUN([HWLOC_SETUP_UTILS],[
 ###
 EOF
 
-    AC_REQUIRE([AC_PROG_SED])
-
-    # runstatedir only supported in autoconf >= 2.70 and in some backports
-    if test "x${runstatedir}" != "x"; then
-      HWLOC_runstatedir=${runstatedir}
-    else
-      HWLOC_runstatedir='${localstatedir}/run'
-    fi
-    AC_SUBST([HWLOC_runstatedir])
-
     # Cairo support
     hwloc_cairo_happy=no
     if test "x$enable_cairo" != "xno"; then
-      HWLOC_PKG_CHECK_MODULES([CAIRO], [cairo], [cairo_fill], [cairo.h],
+      HWLOC_PKG_CHECK_MODULES([CAIRO], [cairo], [cairo_fill],
                               [hwloc_cairo_happy=yes],
                               [hwloc_cairo_happy=no])
-    fi
+      if test "x$hwloc_cairo_happy" = "xyes"; then
+        AC_PATH_XTRA
+	CFLAGS_save=$CFLAGS
+	LIBS_save=$LIBS
 
+	CFLAGS="$CFLAGS $X_CFLAGS"
+	LIBS="$LIBS $X_PRE_LIBS $X_LIBS $X_EXTRA_LIBS"
+        AC_CHECK_HEADERS([X11/Xlib.h], [
+          AC_CHECK_HEADERS([X11/Xutil.h X11/keysym.h], [
+            AC_CHECK_LIB([X11], [XOpenDisplay], [
+              enable_X11=yes
+              AC_SUBST([HWLOC_X11_LIBS], ["-lX11"])
+              AC_DEFINE([HWLOC_HAVE_X11], [1], [Define to 1 if X11 libraries are available.])
+            ])]
+          )],,
+          [[#include <X11/Xlib.h>]]
+        )
+        if test "x$enable_X11" != "xyes"; then
+          AC_MSG_WARN([X11 headers not found, Cairo/X11 back-end disabled])
+          hwloc_cairo_happy=no
+        fi
+
+	CFLAGS=$CFLAGS_save
+	LIBS=$LIBS_save
+      fi
+    fi
+    
     if test "x$hwloc_cairo_happy" = "xyes"; then
         AC_DEFINE([HWLOC_HAVE_CAIRO], [1], [Define to 1 if you have the `cairo' library.])
     else
@@ -317,15 +337,9 @@ EOF
     _HWLOC_CHECK_DIFF_U
     _HWLOC_CHECK_DIFF_W
 
-    AC_CHECK_HEADERS([time.h], [
-      AC_CHECK_FUNCS([clock_gettime])
-    ])
-
     # Only generate this if we're building the utilities
     AC_CONFIG_FILES(
         hwloc_config_prefix[utils/Makefile]
-        hwloc_config_prefix[utils/hwloc/Makefile]
-        hwloc_config_prefix[utils/lstopo/Makefile]
         hwloc_config_prefix[hwloc.pc])
 ])dnl
 
@@ -343,14 +357,8 @@ EOF
     AC_CHECK_LIB([pthread], [pthread_self], [hwloc_have_pthread=yes])
 
     # linux-libnuma.h testing requires libnuma with numa_bitmask_alloc()
-    AC_CHECK_LIB([numa], [numa_available], [
-      AC_CHECK_DECL([numa_bitmask_alloc], [hwloc_have_linux_libnuma=yes], [],
+    AC_CHECK_DECL([numa_bitmask_alloc], [hwloc_have_linux_libnuma=yes], [],
     	      [#include <numa.h>])
-    ])
-
-    AC_CHECK_HEADERS([stdlib.h], [
-      AC_CHECK_FUNCS([mkstemp])
-    ])
 
     AC_CHECK_HEADERS([infiniband/verbs.h], [
       AC_CHECK_LIB([ibverbs], [ibv_open_device],
@@ -391,32 +399,26 @@ int foo(void) {
     AC_CONFIG_FILES(
         hwloc_config_prefix[tests/Makefile]
         hwloc_config_prefix[tests/linux/Makefile]
-        hwloc_config_prefix[tests/linux/allowed/Makefile]
         hwloc_config_prefix[tests/linux/gather/Makefile]
         hwloc_config_prefix[tests/xml/Makefile]
         hwloc_config_prefix[tests/ports/Makefile]
         hwloc_config_prefix[tests/rename/Makefile]
-        hwloc_config_prefix[tests/linux/allowed/test-topology.sh]
+        hwloc_config_prefix[tests/linux/hwloc-gather-topology]
         hwloc_config_prefix[tests/linux/gather/test-gather-topology.sh]
         hwloc_config_prefix[tests/linux/test-topology.sh]
         hwloc_config_prefix[tests/xml/test-topology.sh]
         hwloc_config_prefix[tests/wrapper.sh]
-        hwloc_config_prefix[utils/hwloc/hwloc-assembler-remote]
-        hwloc_config_prefix[utils/hwloc/hwloc-compress-dir]
-        hwloc_config_prefix[utils/hwloc/hwloc-gather-topology]
-        hwloc_config_prefix[utils/hwloc/test-hwloc-annotate.sh]
-        hwloc_config_prefix[utils/hwloc/test-hwloc-assembler.sh]
-        hwloc_config_prefix[utils/hwloc/test-hwloc-calc.sh]
-        hwloc_config_prefix[utils/hwloc/test-hwloc-compress-dir.sh]
-        hwloc_config_prefix[utils/hwloc/test-hwloc-diffpatch.sh]
-        hwloc_config_prefix[utils/hwloc/test-hwloc-distances.sh]
-        hwloc_config_prefix[utils/hwloc/test-hwloc-distrib.sh]
-        hwloc_config_prefix[utils/hwloc/test-hwloc-info.sh]
-        hwloc_config_prefix[utils/hwloc/test-fake-plugin.sh]
-        hwloc_config_prefix[utils/lstopo/test-hwloc-ls.sh]
-        hwloc_config_prefix[contrib/systemd/Makefile])
+        hwloc_config_prefix[utils/hwloc-assembler-remote]
+        hwloc_config_prefix[utils/test-hwloc-annotate.sh]
+        hwloc_config_prefix[utils/test-hwloc-assembler.sh]
+        hwloc_config_prefix[utils/test-hwloc-calc.sh]
+        hwloc_config_prefix[utils/test-hwloc-distances.sh]
+        hwloc_config_prefix[utils/test-hwloc-distrib.sh]
+        hwloc_config_prefix[utils/test-hwloc-info.sh]
+        hwloc_config_prefix[utils/test-hwloc-ls.sh]
+        hwloc_config_prefix[utils/test-fake-plugin.sh])
 
-    AC_CONFIG_COMMANDS([chmoding-scripts], [chmod +x ]hwloc_config_prefix[tests/linux/test-topology.sh ]hwloc_config_prefix[tests/xml/test-topology.sh ]hwloc_config_prefix[tests/linux/allowed/test-topology.sh ]hwloc_config_prefix[tests/linux/gather/test-gather-topology.sh ]hwloc_config_prefix[tests/wrapper.sh ]hwloc_config_prefix[utils/hwloc/hwloc-assembler-remote ]hwloc_config_prefix[utils/hwloc/hwloc-compress-dir ]hwloc_config_prefix[utils/hwloc/hwloc-gather-topology ]hwloc_config_prefix[utils/hwloc/test-hwloc-annotate.sh ]hwloc_config_prefix[utils/hwloc/test-hwloc-assembler.sh ]hwloc_config_prefix[utils/hwloc/test-hwloc-calc.sh ]hwloc_config_prefix[utils/hwloc/test-hwloc-compress-dir.sh ]hwloc_config_prefix[utils/hwloc/test-hwloc-diffpatch.sh ]hwloc_config_prefix[utils/hwloc/test-hwloc-distances.sh ]hwloc_config_prefix[utils/hwloc/test-hwloc-distrib.sh ]hwloc_config_prefix[utils/hwloc/test-hwloc-info.sh ]hwloc_config_prefix[utils/hwloc/test-fake-plugin.sh ]hwloc_config_prefix[utils/lstopo/test-hwloc-ls.sh])
+    AC_CONFIG_COMMANDS([chmoding-scripts], [chmod +x ]hwloc_config_prefix[tests/linux/test-topology.sh ]hwloc_config_prefix[tests/xml/test-topology.sh ]hwloc_config_prefix[tests/linux/hwloc-gather-topology ]hwloc_config_prefix[tests/linux/gather/test-gather-topology.sh ]hwloc_config_prefix[tests/wrapper.sh ]hwloc_config_prefix[utils/hwloc-assembler-remote ]hwloc_config_prefix[utils/test-hwloc-annotate.sh ]hwloc_config_prefix[utils/test-hwloc-assembler.sh ]hwloc_config_prefix[utils/test-hwloc-calc.sh ]hwloc_config_prefix[utils/test-hwloc-distances.sh ]hwloc_config_prefix[utils/test-hwloc-distrib.sh ]hwloc_config_prefix[utils/test-hwloc-info.sh ]hwloc_config_prefix[utils/test-hwloc-ls.sh ]hwloc_config_prefix[utils/test-fake-plugin.sh])
 
     # These links are only needed in standalone mode.  It would
     # be nice to m4 foreach this somehow, but whenever I tried

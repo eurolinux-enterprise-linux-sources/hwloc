@@ -1,5 +1,5 @@
 /*
- * Copyright © 2013-2016 Inria.  All rights reserved.
+ * Copyright © 2013 Inria.  All rights reserved.
  * See COPYING in top-level directory.
  */
 
@@ -31,11 +31,7 @@ extern "C" {
 #endif
 
 
-/** \defgroup hwlocality_intel_mic Interoperability with Intel Xeon Phi (MIC)
- *
- * This interface offers ways to retrieve topology information about
- * Intel Xeon Phi (MIC) devices.
- *
+/** \defgroup hwlocality_intel_mic Intel Xeon Phi (MIC) Specific Functions
  * @{
  */
 
@@ -87,8 +83,8 @@ hwloc_intel_mic_get_device_cpuset(hwloc_topology_t topology __hwloc_attribute_un
 				return -1;
 			}
 
-			if (hwloc_linux_parse_cpumap_file(sysfile, set) < 0
-			    || hwloc_bitmap_iszero(set))
+			hwloc_linux_parse_cpumap_file(sysfile, set);
+			if (hwloc_bitmap_iszero(set))
 				hwloc_bitmap_copy(set, hwloc_topology_get_complete_cpuset(topology));
 
 			fclose(sysfile);

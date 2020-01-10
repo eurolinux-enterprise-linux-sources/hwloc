@@ -1,6 +1,6 @@
 /*
  * Copyright © 2011 inria.  All rights reserved.
- * Copyright © 2011 Université Bordeaux.  All rights reserved.
+ * Copyright © 2011 Université Bordeaux 1.  All rights reserved.
  * See COPYING in top-level directory.
  */
 
@@ -8,6 +8,7 @@
 #include <string.h>
 #include <errno.h>
 
+#include <private/autogen/config.h> /* for HWLOC_WIN_SYS */
 #include <hwloc.h>
 
 hwloc_topology_t topology;

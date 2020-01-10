@@ -1,7 +1,7 @@
 /*
  * Copyright © 2009 CNRS
- * Copyright © 2009-2016 Inria.  All rights reserved.
- * Copyright © 2009-2010 Université Bordeaux
+ * Copyright © 2009-2013 Inria.  All rights reserved.
+ * Copyright © 2009-2010 Université Bordeaux 1
  * Copyright © 2009-2011 Cisco Systems, Inc.  All rights reserved.
  * See COPYING in top-level directory.
  */
@@ -12,7 +12,7 @@
  *
  * Applications that use both hwloc and OpenFabrics verbs may want to
  * include this file so as to get topology information for OpenFabrics
- * hardware (InfiniBand, etc).
+ * hardware.
  *
  */
 
@@ -33,11 +33,7 @@ extern "C" {
 #endif
 
 
-/** \defgroup hwlocality_openfabrics Interoperability with OpenFabrics
- *
- * This interface offers ways to retrieve topology information about
- * OpenFabrics devices (InfiniBand, Omni-Path, usNIC, etc).
- *
+/** \defgroup hwlocality_openfabrics OpenFabrics-Specific Functions
  * @{
  */
 
@@ -45,7 +41,7 @@ extern "C" {
  * close to device \p ibdev.
  *
  * Return the CPU set describing the locality of the OpenFabrics
- * device \p ibdev (InfiniBand, etc).
+ * device \p ibdev.
  *
  * Topology \p topology and device \p ibdev must match the local machine.
  * I/O devices detection is not needed in the topology.
@@ -80,8 +76,8 @@ hwloc_ibv_get_device_cpuset(hwloc_topology_t topology __hwloc_attribute_unused,
   if (!sysfile)
     return -1;
 
-  if (hwloc_linux_parse_cpumap_file(sysfile, set) < 0
-      || hwloc_bitmap_iszero(set))
+  hwloc_linux_parse_cpumap_file(sysfile, set);
+  if (hwloc_bitmap_iszero(set))
     hwloc_bitmap_copy(set, hwloc_topology_get_complete_cpuset(topology));
 
   fclose(sysfile);
@@ -95,10 +91,8 @@ hwloc_ibv_get_device_cpuset(hwloc_topology_t topology __hwloc_attribute_unused,
 /** \brief Get the hwloc OS device object corresponding to the OpenFabrics
  * device named \p ibname.
  *
- * Return the OS device object describing the OpenFabrics device
- * (InfiniBand, Omni-Path, usNIC, etc) whose name is \p ibname
- * (mlx5_0, hfi1_0, usnic_0, qib0, etc).
- * Returns NULL if there is none.
+ * Return the OS device object describing the OpenFabrics device whose
+ * name is \p ibname. Returns NULL if there is none.
  * The name \p ibname is usually obtained from ibv_get_device_name().
  *
  * The topology \p topology does not necessarily have to match the current
@@ -124,8 +118,8 @@ hwloc_ibv_get_device_osdev_by_name(hwloc_topology_t topology,
 /** \brief Get the hwloc OS device object corresponding to the OpenFabrics
  * device \p ibdev.
  *
- * Return the OS device object describing the OpenFabrics device \p ibdev
- * (InfiniBand, etc). Returns NULL if there is none.
+ * Return the OS device object describing the OpenFabrics device \p ibdev.
+ * Returns NULL if there is none.
  *
  * Topology \p topology and device \p ibdev must match the local machine.
  * I/O devices detection must be enabled in the topology.

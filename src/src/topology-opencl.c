@@ -1,6 +1,6 @@
 /*
- * Copyright © 2012-2017 Inria.  All rights reserved.
- * Copyright © 2013 Université Bordeaux.  All right reserved.
+ * Copyright © 2012 Inria.  All rights reserved.
+ * Copyright © 2013 Université Bordeaux 1.  All right reserved.
  * See COPYING in top-level directory.
  */
 
@@ -29,9 +29,6 @@ struct hwloc_opencl_backend_data_s {
     char devicename[64];
     char devicevendor[64];
     char devicetype[64];
-
-    unsigned computeunits;
-    unsigned long long globalmemsize;
 
     union hwloc_opencl_device_info_u {
       struct hwloc_opencl_device_info_amd_s {
@@ -102,10 +99,8 @@ hwloc_opencl_query_devices(struct hwloc_opencl_backend_data_s *data)
 #ifdef CL_DEVICE_TOPOLOGY_AMD
     cl_device_topology_amd amdtopo;
 #endif
-    cl_ulong globalmemsize;
-    cl_uint computeunits;
 
-    hwloc_debug("Looking device %p\n", (void *) device_ids[i]);
+    hwloc_debug("Looking device %p\n", device_ids[i]);
 
     info->platformname[0] = '\0';
     clret = clGetDeviceInfo(device_ids[i], CL_DEVICE_PLATFORM, sizeof(platform_id), &platform_id, NULL);
@@ -138,12 +133,6 @@ hwloc_opencl_query_devices(struct hwloc_opencl_backend_data_s *data)
       break;
     }
 
-    clGetDeviceInfo(device_ids[i], CL_DEVICE_GLOBAL_MEM_SIZE, sizeof(globalmemsize), &globalmemsize, NULL);
-    info->globalmemsize = globalmemsize / 1024;
-
-    clGetDeviceInfo(device_ids[i], CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(computeunits), &computeunits, NULL);
-    info->computeunits = computeunits;
-
     hwloc_debug("platform %s device %s vendor %s type %s\n", info->platformname, info->devicename, info->devicevendor, info->devicetype);
 
     /* find our indexes */
@@ -155,7 +144,7 @@ hwloc_opencl_query_devices(struct hwloc_opencl_backend_data_s *data)
     info->platformdeviceidx = curpfdvidx;
     curpfdvidx++;
 
-    hwloc_debug("This is opencl%ud%u\n", info->platformidx, info->platformdeviceidx);
+    hwloc_debug("This is opencl%dd%d\n", info->platformidx, info->platformdeviceidx);
 
 #ifdef CL_DEVICE_TOPOLOGY_AMD
     clret = clGetDeviceInfo(device_ids[i], CL_DEVICE_TOPOLOGY_AMD, sizeof(amdtopo), &amdtopo, NULL);
@@ -174,8 +163,7 @@ hwloc_opencl_query_devices(struct hwloc_opencl_backend_data_s *data)
     info->specific.amd.pcidev = amdtopo.pcie.device;
     info->specific.amd.pcifunc = amdtopo.pcie.function;
 
-    hwloc_debug("OpenCL device on PCI 0000:%02x:%02x.%01x\n",
-		(unsigned) amdtopo.pcie.bus, (unsigned) amdtopo.pcie.device, (unsigned) amdtopo.pcie.function);
+    hwloc_debug("OpenCL device on PCI 0000:%02x:%02x.%u\n", amdtopo.pcie.bus, amdtopo.pcie.device, amdtopo.pcie.function);
 
     /* validate this device */
     data->nr_devices++;
@@ -241,7 +229,7 @@ hwloc_opencl_backend_notify_new_object(struct hwloc_backend *backend, struct hwl
       continue;
 
     osdev = hwloc_alloc_setup_object(HWLOC_OBJ_OS_DEVICE, -1);
-    snprintf(buffer, sizeof(buffer), "opencl%ud%u", info->platformidx, info->platformdeviceidx);
+    snprintf(buffer, sizeof(buffer), "opencl%dd%d", info->platformidx, info->platformdeviceidx);
     osdev->name = strdup(buffer);
     osdev->depth = (unsigned) HWLOC_TYPE_DEPTH_UNKNOWN;
     osdev->attr->osdev.type = HWLOC_OBJ_OSDEV_COPROC;
@@ -262,12 +250,6 @@ hwloc_opencl_backend_notify_new_object(struct hwloc_backend *backend, struct hwl
 
     snprintf(buffer, sizeof(buffer), "%u", info->platformdeviceidx);
     hwloc_obj_add_info(osdev, "OpenCLPlatformDeviceIndex", buffer);
-
-    snprintf(buffer, sizeof(buffer), "%u", info->computeunits);
-    hwloc_obj_add_info(osdev, "OpenCLComputeUnits", buffer);
-
-    snprintf(buffer, sizeof(buffer), "%llu", info->globalmemsize);
-    hwloc_obj_add_info(osdev, "OpenCLGlobalMemorySize", buffer);
 
     hwloc_insert_object_by_parent(topology, pcidev, osdev);
     return 1;
@@ -324,23 +306,12 @@ static struct hwloc_disc_component hwloc_opencl_disc_component = {
   NULL
 };
 
-static int
-hwloc_opencl_component_init(unsigned long flags)
-{
-  if (flags)
-    return -1;
-  if (hwloc_plugin_check_namespace("opencl", "hwloc_backend_alloc") < 0)
-    return -1;
-  return 0;
-}
-
 #ifdef HWLOC_INSIDE_PLUGIN
 HWLOC_DECLSPEC extern const struct hwloc_component hwloc_opencl_component;
 #endif
 
 const struct hwloc_component hwloc_opencl_component = {
   HWLOC_COMPONENT_ABI,
-  hwloc_opencl_component_init, NULL,
   HWLOC_COMPONENT_TYPE_DISC,
   0,
   &hwloc_opencl_disc_component

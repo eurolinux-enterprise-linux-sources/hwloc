@@ -1,11 +1,8 @@
-.TH "hwlocality_disc_components" 3 "Wed Sep 6 2017" "Version 1.11.8" "Hardware Locality (hwloc)" \" -*- nroff -*-
+.TH "Discovery components" 3 "Sun Apr 7 2013" "Version 1.7" "Hardware Locality (hwloc)" \" -*- nroff -*-
 .ad l
 .nh
 .SH NAME
-hwlocality_disc_components
-.SH SYNOPSIS
-.br
-.PP
+Discovery components \- 
 .SS "Data Structures"
 
 .in +1c
@@ -17,7 +14,9 @@ hwlocality_disc_components
 
 .in +1c
 .ti -1c
-.RI "typedef enum \fBhwloc_disc_component_type_e\fP \fBhwloc_disc_component_type_t\fP"
+.RI "typedef enum 
+.br
+\fBhwloc_disc_component_type_e\fP \fBhwloc_disc_component_type_t\fP"
 .br
 .in -1c
 .SS "Enumerations"
@@ -53,7 +52,7 @@ CPU-only discovery through the OS, or generic no-OS support\&.
 xml, synthetic or custom, platform-specific components such as bgq\&. Anything the discovers CPU and everything else\&. No misc backend is expected to complement a global component\&. 
 .TP
 \fB\fIHWLOC_DISC_COMPONENT_TYPE_MISC \fP\fP
-OpenCL, Cuda, etc\&. 
+PCI, etc\&. 
 .SH "Author"
 .PP 
 Generated automatically by Doxygen for Hardware Locality (hwloc) from the source code\&.

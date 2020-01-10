@@ -1,22 +1,19 @@
-.TH "hwlocality_helper_find_cache" 3 "Wed Sep 6 2017" "Version 1.11.8" "Hardware Locality (hwloc)" \" -*- nroff -*-
+.TH "Cache-specific Finding Helpers" 3 "Sun Apr 7 2013" "Version 1.7" "Hardware Locality (hwloc)" \" -*- nroff -*-
 .ad l
 .nh
 .SH NAME
-hwlocality_helper_find_cache
-.SH SYNOPSIS
-.br
-.PP
+Cache-specific Finding Helpers \- 
 .SS "Functions"
 
 .in +1c
 .ti -1c
-.RI "static int \fBhwloc_get_cache_type_depth\fP (\fBhwloc_topology_t\fP topology, unsigned cachelevel, \fBhwloc_obj_cache_type_t\fP cachetype)"
+.RI "static inline int \fBhwloc_get_cache_type_depth\fP (\fBhwloc_topology_t\fP topology, unsigned cachelevel, \fBhwloc_obj_cache_type_t\fP cachetype)"
 .br
 .ti -1c
-.RI "static \fBhwloc_obj_t\fP \fBhwloc_get_cache_covering_cpuset\fP (\fBhwloc_topology_t\fP topology, \fBhwloc_const_cpuset_t\fP set)"
+.RI "static inline \fBhwloc_obj_t\fP \fBhwloc_get_cache_covering_cpuset\fP (\fBhwloc_topology_t\fP topology, \fBhwloc_const_cpuset_t\fP set) "
 .br
 .ti -1c
-.RI "static \fBhwloc_obj_t\fP \fBhwloc_get_shared_cache_covering_obj\fP (\fBhwloc_topology_t\fP topology, \fBhwloc_obj_t\fP obj)"
+.RI "static inline \fBhwloc_obj_t\fP \fBhwloc_get_shared_cache_covering_obj\fP (\fBhwloc_topology_t\fP topology , \fBhwloc_obj_t\fP obj) "
 .br
 .in -1c
 .SH "Detailed Description"
@@ -24,12 +21,10 @@ hwlocality_helper_find_cache
 
 .SH "Function Documentation"
 .PP 
-.SS "static \fBhwloc_obj_t\fP hwloc_get_cache_covering_cpuset (\fBhwloc_topology_t\fP topology, \fBhwloc_const_cpuset_t\fP set)\fC [inline]\fP, \fC [static]\fP"
+.SS "static inline \fBhwloc_obj_t\fP hwloc_get_cache_covering_cpuset (\fBhwloc_topology_t\fPtopology, \fBhwloc_const_cpuset_t\fPset)\fC [static]\fP"
 
 .PP
-Get the first cache covering a cpuset \fCset\fP\&. 
-.PP
-\fBReturns:\fP
+Get the first cache covering a cpuset \fCset\fP\&. \fBReturns:\fP
 .RS 4
 \fCNULL\fP if no cache matches\&.
 .RE
@@ -40,24 +35,22 @@ This function cannot work if the root object does not have a CPU set, e\&.g\&. i
 .RE
 .PP
 
-.SS "static int hwloc_get_cache_type_depth (\fBhwloc_topology_t\fP topology, unsigned cachelevel, \fBhwloc_obj_cache_type_t\fP cachetype)\fC [inline]\fP, \fC [static]\fP"
+.SS "static inline int hwloc_get_cache_type_depth (\fBhwloc_topology_t\fPtopology, unsignedcachelevel, \fBhwloc_obj_cache_type_t\fPcachetype)\fC [static]\fP"
 
 .PP
-Find the depth of cache objects matching cache depth and type\&. Return the depth of the topology level that contains cache objects whose attributes match \fCcachedepth\fP and \fCcachetype\fP\&. This function intends to disambiguate the case where \fBhwloc_get_type_depth()\fP returns \fBHWLOC_TYPE_DEPTH_MULTIPLE\fP\&.
+Find the depth of cache objects matching cache depth and type\&. Return the depth of the topology level that contains cache objects whose attributes match \fCcachedepth\fP and \fCcachetype\fP\&. This function intends to disambiguate the case where \fBhwloc_get_type_depth()\fP returns \fCHWLOC_TYPE_DEPTH_MULTIPLE\fP\&.
 .PP
-If no cache level matches, \fBHWLOC_TYPE_DEPTH_UNKNOWN\fP is returned\&.
+If no cache level matches, \fCHWLOC_TYPE_DEPTH_UNKNOWN\fP is returned\&.
 .PP
-If \fCcachetype\fP is \fBHWLOC_OBJ_CACHE_UNIFIED\fP, the depth of the unique matching unified cache level is returned\&.
+If \fCcachetype\fP is \fCHWLOC_OBJ_CACHE_UNIFIED\fP, the depth of the unique matching unified cache level is returned\&.
 .PP
-If \fCcachetype\fP is \fBHWLOC_OBJ_CACHE_DATA\fP or \fBHWLOC_OBJ_CACHE_INSTRUCTION\fP, either a matching cache, or a unified cache is returned\&.
+If \fCcachetype\fP is \fCHWLOC_OBJ_CACHE_DATA\fP or \fCHWLOC_OBJ_CACHE_INSTRUCTION\fP, either a matching cache, or a unified cache is returned\&.
 .PP
-If \fCcachetype\fP is \fC-1\fP, it is ignored and multiple levels may match\&. The function returns either the depth of a uniquely matching level or \fBHWLOC_TYPE_DEPTH_MULTIPLE\fP\&. 
-.SS "static \fBhwloc_obj_t\fP hwloc_get_shared_cache_covering_obj (\fBhwloc_topology_t\fP topology, \fBhwloc_obj_t\fP obj)\fC [inline]\fP, \fC [static]\fP"
+If \fCcachetype\fP is \fC-1\fP, it is ignored and multiple levels may match\&. The function returns either the depth of a uniquely matching level or \fCHWLOC_TYPE_DEPTH_MULTIPLE\fP\&. 
+.SS "static inline \fBhwloc_obj_t\fP hwloc_get_shared_cache_covering_obj (\fBhwloc_topology_t\fP topology, \fBhwloc_obj_t\fPobj)\fC [static]\fP"
 
 .PP
-Get the first cache shared between an object and somebody else\&. 
-.PP
-\fBReturns:\fP
+Get the first cache shared between an object and somebody else\&. \fBReturns:\fP
 .RS 4
 \fCNULL\fP if no cache matches or if an invalid object is given\&. 
 .RE

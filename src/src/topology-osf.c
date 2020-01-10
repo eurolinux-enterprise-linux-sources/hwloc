@@ -1,7 +1,7 @@
 /*
  * Copyright © 2009 CNRS
- * Copyright © 2009-2016 Inria.  All rights reserved.
- * Copyright © 2009-2011 Université Bordeaux
+ * Copyright © 2009-2012 Inria.  All rights reserved.
+ * Copyright © 2009-2011 Université Bordeaux 1
  * Copyright © 2011 Cisco Systems, Inc.  All rights reserved.
  * See COPYING in top-level directory.
  */
@@ -234,7 +234,7 @@ hwloc_osf_alloc_membind(hwloc_topology_t topology, size_t len, hwloc_const_nodes
   ptr = nmmap(NULL, len, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1,
                0, &mattr);
   radsetdestroy(&mattr.mattr_radset);
-  return ptr == MAP_FAILED ? NULL : ptr;
+  return ptr;
 }
 
 static int
@@ -282,16 +282,14 @@ hwloc_look_osf(struct hwloc_backend *backend)
       }
 
       indexes[radid] = radid;
-      nodes[radid] = obj = hwloc_alloc_setup_object(HWLOC_OBJ_NUMANODE, radid);
-      obj->nodeset = hwloc_bitmap_alloc();
-      hwloc_bitmap_set(obj->nodeset, radid);
+      nodes[radid] = obj = hwloc_alloc_setup_object(HWLOC_OBJ_NODE, radid);
       obj->cpuset = hwloc_bitmap_alloc();
       obj->memory.local_memory = rad_get_physmem(radid) * hwloc_getpagesize();
       obj->memory.page_types_len = 2;
       obj->memory.page_types = malloc(2*sizeof(*obj->memory.page_types));
       memset(obj->memory.page_types, 0, 2*sizeof(*obj->memory.page_types));
       obj->memory.page_types[0].size = hwloc_getpagesize();
-#if HAVE_DECL__SC_LARGE_PAGESIZE
+#ifdef HAVE__SC_LARGE_PAGESIZE
       obj->memory.page_types[1].size = sysconf(_SC_LARGE_PAGESIZE);
 #endif
 
@@ -327,7 +325,7 @@ hwloc_look_osf(struct hwloc_backend *backend)
       }
     }
 
-    hwloc_distances_set(topology, HWLOC_OBJ_NUMANODE, nbnodes, indexes, nodes, distances, 0 /* OS cannot force */);
+    hwloc_distances_set(topology, HWLOC_OBJ_NODE, nbnodes, indexes, nodes, distances, 0 /* OS cannot force */);
   }
   radsetdestroy(&radset2);
   radsetdestroy(&radset);
@@ -338,7 +336,7 @@ hwloc_look_osf(struct hwloc_backend *backend)
 
   hwloc_obj_add_info(topology->levels[0][0], "Backend", "OSF");
   if (topology->is_thissystem)
-    hwloc_add_uname_info(topology, NULL);
+    hwloc_add_uname_info(topology);
   return 1;
 }
 
@@ -385,7 +383,6 @@ static struct hwloc_disc_component hwloc_osf_disc_component = {
 
 const struct hwloc_component hwloc_osf_component = {
   HWLOC_COMPONENT_ABI,
-  NULL, NULL,
   HWLOC_COMPONENT_TYPE_DISC,
   0,
   &hwloc_osf_disc_component

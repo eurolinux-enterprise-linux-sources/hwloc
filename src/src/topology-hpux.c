@@ -1,7 +1,7 @@
 /*
  * Copyright © 2009 CNRS
- * Copyright © 2009-2017 Inria.  All rights reserved.
- * Copyright © 2009-2010, 2013 Université Bordeaux
+ * Copyright © 2009-2012 Inria.  All rights reserved.
+ * Copyright © 2009-2010, 2013 Université Bordeaux 1
  * Copyright © 2011 Cisco Systems, Inc.  All rights reserved.
  * See COPYING in top-level directory.
  */
@@ -43,17 +43,9 @@ hwloc_hpux_find_ldom(hwloc_topology_t topology, hwloc_const_bitmap_t hwloc_set)
     return -1;
 
   obj = hwloc_get_first_largest_obj_inside_cpuset(topology, hwloc_set);
-  if (!hwloc_bitmap_isequal(obj->cpuset, hwloc_set))
+  if (!hwloc_bitmap_isequal(obj->cpuset, hwloc_set) || obj->type != HWLOC_OBJ_NODE) {
     /* Does not correspond to exactly one node */
     return -1;
-  /* obj is the highest possibly matching object, but some (single) child (with same cpuset) could match too */
-  while (obj->type != HWLOC_OBJ_NUMANODE) {
-    /* try the first child, in case it has the same cpuset */
-    if (!obj->first_child
-	|| !obj->first_child->cpuset
-	|| !hwloc_bitmap_isequal(obj->cpuset, obj->first_child->cpuset))
-      return -1;
-    obj = obj->first_child;
   }
 
   return obj->os_index;
@@ -90,7 +82,7 @@ hwloc_hpux_set_proc_cpubind(hwloc_topology_t topology, hwloc_pid_t pid, hwloc_co
 
   cpu = hwloc_hpux_find_spu(topology, hwloc_set);
   if (cpu != -1)
-    return mpctl((flags & HWLOC_CPUBIND_STRICT) ? MPC_SETPROCESS_FORCE : MPC_SETPROCESS, cpu, pid);
+    return mpctl(flags & HWLOC_CPUBIND_STRICT ? MPC_SETPROCESS_FORCE : MPC_SETPROCESS, cpu, pid);
 
   errno = EXDEV;
   return -1;
@@ -122,7 +114,7 @@ hwloc_hpux_set_thread_cpubind(hwloc_topology_t topology, hwloc_thread_t pthread,
 
   cpu = hwloc_hpux_find_spu(topology, hwloc_set);
   if (cpu != -1)
-    return pthread_processor_bind_np((flags & HWLOC_CPUBIND_STRICT) ? PTHREAD_BIND_FORCED_NP : PTHREAD_BIND_ADVISORY_NP, &cpu2, cpu, pthread);
+    return pthread_processor_bind_np(flags & HWLOC_CPUBIND_STRICT ? PTHREAD_BIND_FORCED_NP : PTHREAD_BIND_ADVISORY_NP, &cpu2, cpu, pthread);
 
   errno = EXDEV;
   return -1;
@@ -142,7 +134,6 @@ static void*
 hwloc_hpux_alloc_membind(hwloc_topology_t topology, size_t len, hwloc_const_nodeset_t nodeset, hwloc_membind_policy_t policy, int flags)
 {
   int mmap_flags;
-  void *p;
 
   /* Can not give a set of nodes.  */
   if (!hwloc_bitmap_isequal(nodeset, hwloc_topology_get_complete_nodeset(topology))) {
@@ -166,8 +157,7 @@ hwloc_hpux_alloc_membind(hwloc_topology_t topology, size_t len, hwloc_const_node
       return NULL;
   }
 
-  p = mmap(NULL, len, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | mmap_flags, -1, 0);
-  return p == MAP_FAILED ? NULL : p;
+  return mmap(NULL, len, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | mmap_flags, -1, 0);
 }
 #endif /* MAP_MEM_FIRST_TOUCH */
 
@@ -188,7 +178,7 @@ hwloc_look_hpux(struct hwloc_backend *backend)
   hwloc_alloc_obj_cpusets(topology->levels[0][0]);
 
   if (has_numa) {
-    nbnodes = mpctl((topology->flags & HWLOC_TOPOLOGY_FLAG_WHOLE_SYSTEM) ?
+    nbnodes = mpctl(topology->flags & HWLOC_TOPOLOGY_FLAG_WHOLE_SYSTEM ?
       MPC_GETNUMLDOMS_SYS : MPC_GETNUMLDOMS, 0, 0);
 
     hwloc_debug("%d nodes\n", nbnodes);
@@ -196,25 +186,25 @@ hwloc_look_hpux(struct hwloc_backend *backend)
     nodes = malloc(nbnodes * sizeof(*nodes));
 
     i = 0;
-    currentnode = mpctl((topology->flags & HWLOC_TOPOLOGY_FLAG_WHOLE_SYSTEM) ?
+    currentnode = mpctl(topology->flags & HWLOC_TOPOLOGY_FLAG_WHOLE_SYSTEM ?
       MPC_GETFIRSTLDOM_SYS : MPC_GETFIRSTLDOM, 0, 0);
     while (currentnode != -1 && i < nbnodes) {
       hwloc_debug("node %d is %d\n", i, currentnode);
-      nodes[i] = obj = hwloc_alloc_setup_object(HWLOC_OBJ_NUMANODE, currentnode);
+      nodes[i] = obj = hwloc_alloc_setup_object(HWLOC_OBJ_NODE, currentnode);
       obj->cpuset = hwloc_bitmap_alloc();
       obj->nodeset = hwloc_bitmap_alloc();
       hwloc_bitmap_set(obj->nodeset, currentnode);
       /* TODO: obj->attr->node.memory_kB */
       /* TODO: obj->attr->node.huge_page_free */
 
-      currentnode = mpctl((topology->flags & HWLOC_TOPOLOGY_FLAG_WHOLE_SYSTEM) ?
+      currentnode = mpctl(topology->flags & HWLOC_TOPOLOGY_FLAG_WHOLE_SYSTEM ?
         MPC_GETNEXTLDOM_SYS : MPC_GETNEXTLDOM, currentnode, 0);
       i++;
     }
   }
 
   i = 0;
-  currentcpu = mpctl((topology->flags & HWLOC_TOPOLOGY_FLAG_WHOLE_SYSTEM) ?
+  currentcpu = mpctl(topology->flags & HWLOC_TOPOLOGY_FLAG_WHOLE_SYSTEM ?
       MPC_GETFIRSTSPU_SYS : MPC_GETFIRSTSPU, 0,0);
   while (currentcpu != -1) {
     obj = hwloc_alloc_setup_object(HWLOC_OBJ_PU, currentcpu);
@@ -242,7 +232,7 @@ hwloc_look_hpux(struct hwloc_backend *backend)
     /* Add cpu */
     hwloc_insert_object_by_cpuset(topology, obj);
 
-    currentcpu = mpctl((topology->flags & HWLOC_TOPOLOGY_FLAG_WHOLE_SYSTEM) ?
+    currentcpu = mpctl(topology->flags & HWLOC_TOPOLOGY_FLAG_WHOLE_SYSTEM ?
       MPC_GETNEXTSPU_SYS : MPC_GETNEXTSPU, currentcpu, 0);
   }
 
@@ -257,7 +247,7 @@ hwloc_look_hpux(struct hwloc_backend *backend)
 
   hwloc_obj_add_info(topology->levels[0][0], "Backend", "HP-UX");
   if (topology->is_thissystem)
-    hwloc_add_uname_info(topology, NULL);
+    hwloc_add_uname_info(topology);
   return 1;
 }
 
@@ -306,7 +296,6 @@ static struct hwloc_disc_component hwloc_hpux_disc_component = {
 
 const struct hwloc_component hwloc_hpux_component = {
   HWLOC_COMPONENT_ABI,
-  NULL, NULL,
   HWLOC_COMPONENT_TYPE_DISC,
   0,
   &hwloc_hpux_disc_component

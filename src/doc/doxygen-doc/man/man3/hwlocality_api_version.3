@@ -1,26 +1,23 @@
-.TH "hwlocality_api_version" 3 "Wed Sep 6 2017" "Version 1.11.8" "Hardware Locality (hwloc)" \" -*- nroff -*-
+.TH "API version" 3 "Sun Apr 7 2013" "Version 1.7" "Hardware Locality (hwloc)" \" -*- nroff -*-
 .ad l
 .nh
 .SH NAME
-hwlocality_api_version
-.SH SYNOPSIS
-.br
-.PP
+API version \- 
 .SS "Macros"
 
 .in +1c
 .ti -1c
-.RI "#define \fBHWLOC_API_VERSION\fP   0x00010b00"
+.RI "#define \fBHWLOC_API_VERSION\fP   0x00010700"
 .br
 .ti -1c
-.RI "#define \fBHWLOC_COMPONENT_ABI\fP   4"
+.RI "#define \fBHWLOC_COMPONENT_ABI\fP   2"
 .br
 .in -1c
 .SS "Functions"
 
 .in +1c
 .ti -1c
-.RI "unsigned \fBhwloc_get_api_version\fP (void)"
+.RI " unsigned \fBhwloc_get_api_version\fP (void)"
 .br
 .in -1c
 .SH "Detailed Description"
@@ -28,22 +25,20 @@ hwlocality_api_version
 
 .SH "Macro Definition Documentation"
 .PP 
-.SS "#define HWLOC_API_VERSION   0x00010b00"
+.SS "#define HWLOC_API_VERSION   0x00010700"
 
 .PP
-Indicate at build time which hwloc API version is being used\&. This number is updated to (X>>16)+(Y>>8)+Z when a new release X\&.Y\&.Z actually modifies the API\&.
-.PP
-Users may check for available features at build time using this number (see \fBHow do I handle ABI breaks and API upgrades?\fP)\&. 
-.SS "#define HWLOC_COMPONENT_ABI   4"
+Indicate at build time which hwloc API version is being used\&. 
+.SS "#define HWLOC_COMPONENT_ABI   2"
 
 .PP
 Current component and plugin ABI version (see \fBhwloc/plugins\&.h\fP) 
 .SH "Function Documentation"
 .PP 
-.SS "unsigned hwloc_get_api_version (void)"
+.SS " unsigned hwloc_get_api_version (void)"
 
 .PP
-Indicate at runtime which hwloc API version was used at build time\&. Should be \fBHWLOC_API_VERSION\fP if running on the same version\&. 
+Indicate at runtime which hwloc API version was used at build time\&. 
 .SH "Author"
 .PP 
 Generated automatically by Doxygen for Hardware Locality (hwloc) from the source code\&.

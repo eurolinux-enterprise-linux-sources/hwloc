@@ -1,7 +1,7 @@
 /*
  * Copyright © 2009 CNRS
- * Copyright © 2009-2014 Inria.  All rights reserved.
- * Copyright © 2009-2010, 2012 Université Bordeaux
+ * Copyright © 2009-2012 Inria.  All rights reserved.
+ * Copyright © 2009-2010, 2012 Université Bordeaux 1
  * Copyright © 2011 Cisco Systems, Inc.  All rights reserved.
  * See COPYING in top-level directory.
  */
@@ -19,7 +19,7 @@
 #ifdef HAVE_SYS_CPUSET_H
 #include <sys/cpuset.h>
 #endif
-#ifdef HAVE_SYS_SYSCTL_H
+#ifdef HAVE_SYSCTL
 #include <sys/sysctl.h>
 #endif
 
@@ -29,33 +29,33 @@
 
 #if defined(HAVE_SYS_CPUSET_H) && defined(HAVE_CPUSET_SETAFFINITY)
 static void
-hwloc_freebsd_bsd2hwloc(hwloc_bitmap_t hwloc_cpuset, const cpuset_t *cset)
+hwloc_freebsd_bsd2hwloc(hwloc_bitmap_t hwloc_cpuset, const cpuset_t *cpuset)
 {
   unsigned cpu;
   hwloc_bitmap_zero(hwloc_cpuset);
   for (cpu = 0; cpu < CPU_SETSIZE; cpu++)
-    if (CPU_ISSET(cpu, cset))
+    if (CPU_ISSET(cpu, cpuset))
       hwloc_bitmap_set(hwloc_cpuset, cpu);
 }
 
 static void
-hwloc_freebsd_hwloc2bsd(hwloc_const_bitmap_t hwloc_cpuset, cpuset_t *cset)
+hwloc_freebsd_hwloc2bsd(hwloc_const_bitmap_t hwloc_cpuset, cpuset_t *cpuset)
 {
   unsigned cpu;
-  CPU_ZERO(cset);
+  CPU_ZERO(cpuset);
   for (cpu = 0; cpu < CPU_SETSIZE; cpu++)
     if (hwloc_bitmap_isset(hwloc_cpuset, cpu))
-      CPU_SET(cpu, cset);
+      CPU_SET(cpu, cpuset);
 }
 
 static int
 hwloc_freebsd_set_sth_affinity(hwloc_topology_t topology __hwloc_attribute_unused, cpulevel_t level, cpuwhich_t which, id_t id, hwloc_const_bitmap_t hwloc_cpuset, int flags __hwloc_attribute_unused)
 {
-  cpuset_t cset;
+  cpuset_t cpuset;
 
-  hwloc_freebsd_hwloc2bsd(hwloc_cpuset, &cset);
+  hwloc_freebsd_hwloc2bsd(hwloc_cpuset, &cpuset);
 
-  if (cpuset_setaffinity(level, which, id, sizeof(cset), &cset))
+  if (cpuset_setaffinity(level, which, id, sizeof(cpuset), &cpuset))
     return -1;
 
   return 0;
@@ -64,12 +64,12 @@ hwloc_freebsd_set_sth_affinity(hwloc_topology_t topology __hwloc_attribute_unuse
 static int
 hwloc_freebsd_get_sth_affinity(hwloc_topology_t topology __hwloc_attribute_unused, cpulevel_t level, cpuwhich_t which, id_t id, hwloc_bitmap_t hwloc_cpuset, int flags __hwloc_attribute_unused)
 {
-  cpuset_t cset;
+  cpuset_t cpuset;
 
-  if (cpuset_getaffinity(level, which, id, sizeof(cset), &cset))
+  if (cpuset_getaffinity(level, which, id, sizeof(cpuset), &cpuset))
     return -1;
 
-  hwloc_freebsd_bsd2hwloc(hwloc_cpuset, &cset);
+  hwloc_freebsd_bsd2hwloc(hwloc_cpuset, &cpuset);
   return 0;
 }
 
@@ -117,16 +117,16 @@ static int
 hwloc_freebsd_set_thread_cpubind(hwloc_topology_t topology __hwloc_attribute_unused, hwloc_thread_t tid, hwloc_const_bitmap_t hwloc_cpuset, int flags __hwloc_attribute_unused)
 {
   int err;
-  cpuset_t cset;
+  cpuset_t cpuset;
 
   if (!pthread_setaffinity_np) {
     errno = ENOSYS;
     return -1;
   }
 
-  hwloc_freebsd_hwloc2bsd(hwloc_cpuset, &cset);
+  hwloc_freebsd_hwloc2bsd(hwloc_cpuset, &cpuset);
 
-  err = pthread_setaffinity_np(tid, sizeof(cset), &cset);
+  err = pthread_setaffinity_np(tid, sizeof(cpuset), &cpuset);
 
   if (err) {
     errno = err;
@@ -143,36 +143,34 @@ static int
 hwloc_freebsd_get_thread_cpubind(hwloc_topology_t topology __hwloc_attribute_unused, hwloc_thread_t tid, hwloc_bitmap_t hwloc_cpuset, int flags __hwloc_attribute_unused)
 {
   int err;
-  cpuset_t cset;
+  cpuset_t cpuset;
 
   if (!pthread_getaffinity_np) {
     errno = ENOSYS;
     return -1;
   }
 
-  err = pthread_getaffinity_np(tid, sizeof(cset), &cset);
+  err = pthread_getaffinity_np(tid, sizeof(cpuset), &cpuset);
 
   if (err) {
     errno = err;
     return -1;
   }
 
-  hwloc_freebsd_bsd2hwloc(hwloc_cpuset, &cset);
+  hwloc_freebsd_bsd2hwloc(hwloc_cpuset, &cpuset);
   return 0;
 }
 #endif
 #endif
 #endif
 
-#if (defined HAVE_SYSCTL) && (defined HAVE_SYS_SYSCTL_H)
+#ifdef HAVE_SYSCTL
 static void
 hwloc_freebsd_node_meminfo_info(struct hwloc_topology *topology)
 {
        int mib[2] = { CTL_HW, HW_PHYSMEM };
-       unsigned long physmem;
-       size_t len = sizeof(physmem);
-       sysctl(mib, 2, &physmem, &len, NULL, 0);
-       topology->levels[0][0]->memory.local_memory = physmem;
+       size_t len = sizeof(topology->levels[0][0]->memory.local_memory);
+       sysctl(mib, 2, &topology->levels[0][0]->memory.local_memory, &len, NULL, 0);
 }
 #endif
 
@@ -189,12 +187,12 @@ hwloc_look_freebsd(struct hwloc_backend *backend)
   }
 
   /* Add FreeBSD specific information */
-#if (defined HAVE_SYSCTL) && (defined HAVE_SYS_SYSCTL_H)
+#ifdef HAVE_SYSCTL
   hwloc_freebsd_node_meminfo_info(topology);
 #endif
   hwloc_obj_add_info(topology->levels[0][0], "Backend", "FreeBSD");
   if (topology->is_thissystem)
-    hwloc_add_uname_info(topology, NULL);
+    hwloc_add_uname_info(topology);
   return 1;
 }
 
@@ -246,7 +244,6 @@ static struct hwloc_disc_component hwloc_freebsd_disc_component = {
 
 const struct hwloc_component hwloc_freebsd_component = {
   HWLOC_COMPONENT_ABI,
-  NULL, NULL,
   HWLOC_COMPONENT_TYPE_DISC,
   0,
   &hwloc_freebsd_disc_component

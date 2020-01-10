@@ -1,6 +1,6 @@
 /*
- * Copyright © 2012-2017 Inria.  All rights reserved.
- * Copyright © 2013 Université Bordeaux.  All right reserved.
+ * Copyright © 2012-2013 Inria.  All rights reserved.
+ * Copyright © 2013 Université Bordeaux 1.  All right reserved.
  * See COPYING in top-level directory.
  */
 
@@ -9,6 +9,9 @@
  *
  * Applications that use both hwloc and OpenCL may want to
  * include this file so as to get topology information for OpenCL devices.
+ *
+ * Only the AMD OpenCL interface currently offers useful locality information
+ * about its devices.
  */
 
 #ifndef HWLOC_OPENCL_H
@@ -32,14 +35,7 @@ extern "C" {
 #endif
 
 
-/** \defgroup hwlocality_opencl Interoperability with OpenCL
- *
- * This interface offers ways to retrieve topology information about
- * OpenCL devices.
- *
- * Only the AMD OpenCL interface currently offers useful locality information
- * about its devices.
- *
+/** \defgroup hwlocality_opencl OpenCL Specific Functions
  * @{
  */
 
@@ -88,14 +84,13 @@ hwloc_opencl_get_device_cpuset(hwloc_topology_t topology __hwloc_attribute_unuse
 		return 0;
 	}
 
-	sprintf(path, "/sys/bus/pci/devices/0000:%02x:%02x.%01x/local_cpus",
-		(unsigned) amdtopo.pcie.bus, (unsigned) amdtopo.pcie.device, (unsigned) amdtopo.pcie.function);
+	sprintf(path, "/sys/bus/pci/devices/0000:%02x:%02x.%01x/local_cpus", amdtopo.pcie.bus, amdtopo.pcie.device, amdtopo.pcie.function);
 	sysfile = fopen(path, "r");
 	if (!sysfile)
 		return -1;
 
-	if (hwloc_linux_parse_cpumap_file(sysfile, set) < 0
-	    || hwloc_bitmap_iszero(set))
+	hwloc_linux_parse_cpumap_file(sysfile, set);
+	if (hwloc_bitmap_iszero(set))
 		hwloc_bitmap_copy(set, hwloc_topology_get_complete_cpuset(topology));
 
 	fclose(sysfile);

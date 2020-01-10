@@ -1,5 +1,5 @@
-# Copyright © 2009-2016 Inria.  All rights reserved.
-# Copyright © 2009, 2011-2012 Université Bordeaux
+# Copyright © 2009-2012 Inria.  All rights reserved.
+# Copyright © 2009, 2011-2012 Université Bordeaux 1
 # Copyright © 2009-2010 Cisco Systems, Inc.  All rights reserved.
 # See COPYING in top-level directory.
 
@@ -50,7 +50,8 @@ libhwloc_port_aix_la_SOURCES = \
 libhwloc_port_aix_la_CPPFLAGS = $(common_CPPFLAGS) \
 	-I$(HWLOC_top_srcdir)/tests/ports/include/aix \
 	-DHWLOC_AIX_SYS \
-	-DHWLOC_HAVE_PTHREAD_GETTHRDS_NP
+	-DHWLOC_HAVE_PTHREAD_GETTHRDS_NP \
+	-DHAVE__SC_LARGE_PAGESIZE -D_SC_LARGE_PAGESIZE=33
 
 nodist_libhwloc_port_bgq_la_SOURCES = topology-bgq.c
 libhwloc_port_bgq_la_SOURCES = \
@@ -65,7 +66,8 @@ libhwloc_port_darwin_la_SOURCES = \
 	include/darwin/sys/sysctl.h
 libhwloc_port_darwin_la_CPPFLAGS = $(common_CPPFLAGS) \
 	-I$(HWLOC_top_srcdir)/tests/ports/include/darwin \
-	-DHWLOC_DARWIN_SYS
+	-DHWLOC_DARWIN_SYS \
+	-DHAVE__SC_LARGE_PAGESIZE -D_SC_LARGE_PAGESIZE=33
 
 nodist_libhwloc_port_freebsd_la_SOURCES = topology-freebsd.c
 libhwloc_port_freebsd_la_SOURCES = \
@@ -78,7 +80,6 @@ libhwloc_port_freebsd_la_CPPFLAGS = $(common_CPPFLAGS) \
 	-DHWLOC_FREEBSD_SYS \
 	-DHAVE_PTHREAD_NP_H \
 	-DHAVE_SYS_CPUSET_H \
-	-DHAVE_SYS_SYSCTL_H \
 	-DHAVE_SYSCTL \
 	-DHAVE_CPUSET_SETAFFINITY \
 	-Dhwloc_thread_t=pthread_t \
@@ -96,13 +97,10 @@ libhwloc_port_hpux_la_CPPFLAGS = $(common_CPPFLAGS) \
 nodist_libhwloc_port_netbsd_la_SOURCES = topology-netbsd.c
 libhwloc_port_netbsd_la_SOURCES = \
 	include/netbsd/pthread.h \
-	include/netbsd/sched.h \
-	include/netbsd/sys/sysctl.h
+	include/netbsd/sched.h
 libhwloc_port_netbsd_la_CPPFLAGS = $(common_CPPFLAGS) \
 	-I$(HWLOC_top_srcdir)/tests/ports/include/netbsd \
-	-DHWLOC_NETBSD_SYS \
-	-DHAVE_SYS_SYSCTL_H \
-	-DHAVE_SYSCTL
+	-DHWLOC_NETBSD_SYS
 
 nodist_libhwloc_port_osf_la_SOURCES = topology-osf.c
 libhwloc_port_osf_la_SOURCES = \
@@ -111,7 +109,8 @@ libhwloc_port_osf_la_SOURCES = \
 	include/osf/radset.h
 libhwloc_port_osf_la_CPPFLAGS = $(common_CPPFLAGS) \
 	-I$(HWLOC_top_srcdir)/tests/ports/include/osf \
-	-DHWLOC_OSF_SYS
+	-DHWLOC_OSF_SYS \
+	-DHAVE__SC_LARGE_PAGESIZE -D_SC_LARGE_PAGESIZE=33
 
 nodist_libhwloc_port_solaris_la_SOURCES = topology-solaris.c topology-solaris-chiptype.c
 libhwloc_port_solaris_la_SOURCES = \
@@ -125,7 +124,8 @@ libhwloc_port_solaris_la_CPPFLAGS = $(common_CPPFLAGS) \
 	-I$(HWLOC_top_srcdir)/tests/ports/include/solaris \
 	-DHWLOC_SOLARIS_SYS \
 	-DHAVE_LIBLGRP \
-	-DHAVE_DECL_LGRP_LATENCY_COOKIE=1 \
+	-DHAVE__SC_LARGE_PAGESIZE -D_SC_LARGE_PAGESIZE=33 \
+	-DHAVE_LGRP_LATENCY_COOKIE \
 	-DHAVE_LIBKSTAT \
 	-DHAVE_PICL_H
 
@@ -134,7 +134,8 @@ libhwloc_port_windows_la_SOURCES = \
 	include/windows/windows.h
 libhwloc_port_windows_la_CPPFLAGS = $(common_CPPFLAGS) \
 	-I$(HWLOC_top_srcdir)/tests/ports/include/windows \
-	-DHWLOC_WIN_SYS
+	-DHWLOC_WIN_SYS \
+	-DHAVE__SC_LARGE_PAGESIZE -D_SC_LARGE_PAGESIZE=33
 
 nodist_libhwloc_port_opencl_la_SOURCES = topology-opencl.c
 libhwloc_port_opencl_la_SOURCES = \
@@ -144,7 +145,6 @@ libhwloc_port_opencl_la_CPPFLAGS = $(common_CPPFLAGS) \
 
 nodist_libhwloc_port_cuda_la_SOURCES = topology-cuda.c
 libhwloc_port_cuda_la_SOURCES = \
-	include/cuda/cuda.h \
 	include/cuda/cuda_runtime_api.h
 libhwloc_port_cuda_la_CPPFLAGS = $(common_CPPFLAGS) \
 	-I$(HWLOC_top_srcdir)/tests/ports/include/cuda

@@ -1,7 +1,3 @@
-/* don't let assert() stringify some hwloc names that would not
- * renamed afterwards, and wouldn't be easy to filter out */
-#define NDEBUG 1
-
 #define _GNU_SOURCE 1
 #include "sched.h"
 
@@ -43,7 +39,7 @@
 
 #include "private/autogen/config.h"
 #include "private/components.h"
-#include "private/cpuid-x86.h"
+#include "private/cpuid.h"
 #include "private/debug.h"
 #include "private/misc.h"
 #include "private/private.h"

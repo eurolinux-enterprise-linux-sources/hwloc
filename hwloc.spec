@@ -1,33 +1,22 @@
 Summary:   Portable Hardware Locality - portable abstraction of hierarchical architectures
 Name:      hwloc
-Version:   1.11.8
-Release:   4%{?dist}
+Version:   1.7
+Release:   3%{?dist}
 License:   BSD
 Group:     Applications/System
 URL:       http://www.open-mpi.org/projects/hwloc/
-Source0:   http://www.open-mpi.org/software/hwloc/v1.11/downloads/%{name}-%{version}.tar.bz2
-# fix build with -Werror=format-security
-Patch0:    0001-Avoid-letting-snprintf-interpret-process-name-as-for.patch
-Requires:  %{name}-libs%{?_isa} = %{version}-%{release}
+Source0:   http://www.open-mpi.org/software/hwloc/v1.7/downloads/%{name}-%{version}.tar.bz2
+Patch0:    hwloc-1.7.patch
+Patch1:    hwloc-1.7-manpage.patch
+Requires:  %{name}-libs = %{version}-%{release} 
 
-BuildRequires: cairo-devel
-BuildRequires: libpciaccess-devel
-BuildRequires: libtool-ltdl-devel
-BuildRequires: libX11-devel
-BuildRequires: libxml2-devel
-BuildRequires: ncurses-devel
-BuildRequires: transfig doxygen
-BuildRequires: texlive-latex texlive-makeindex
-BuildRequires: desktop-file-utils
+BuildRequires: libX11-devel libxml2-devel cairo-devel ncurses-devel libpciaccess-devel transfig doxygen texlive-latex texlive-makeindex libtool-ltdl-devel autoconf automake libtool
+%ifnarch s390 s390x
+BuildRequires: libibverbs-devel
+%endif
 %ifnarch s390 s390x %{arm}
 BuildRequires: numactl-devel
-%endif
-%ifnarch %{arm}
-BuildRequires: rdma-core-devel
-%endif
-%ifarch %{ix86} x86_64
-%{?systemd_requires}
-BuildRequires: systemd
+##Requires: numactl-libs
 %endif
 
 %description
@@ -47,10 +36,7 @@ about the hardware, bind processes, and much more.
 %package devel
 Summary:   Headers and shared development libraries for hwloc
 Group:     Development/Libraries
-Requires:  %{name}-libs%{?_isa} = %{version}-%{release}
-%ifnarch %{arm}
-Requires:  rdma-core-devel%{?_isa}
-%endif
+Requires:  %{name}-libs = %{version}-%{release}
 
 %description devel
 Headers and shared object symbolic links for the hwloc.
@@ -65,153 +51,76 @@ Run time libraries for the hwloc
 %package gui
 Summary:   The gui-based hwloc program(s)
 Group:     Development/Libraries
-Requires:  %{name}-libs%{?_isa} = %{version}-%{release}
+Requires:  %{name}-libs = %{version}-%{release}
 
 %description gui
 GUI-based tool for displaying system topology information.
 
-%package plugins
-Summary:   Plugins for hwloc
-Group:     Development/Libraries
-Requires:  %{name}-plugins%{?_isa} = %{version}-%{release}
-
-%description plugins
- This package contains plugins for hwloc. This includes
-  - PCI support
-  - GL support
-  - libxml support
-
 %prep
-%autosetup -p1
+%setup -q
+%patch0 -p1
+%patch1 -p1
 
 %build
-# The ./configure script will support --runstatedir= when generated with
-# autoconf 2.70. Until then, tell it about /run using the export:
-export runstatedir=/run
-%configure --enable-plugins --disable-silent-rules --docdir=%{_pkgdocdir}
-# Remove rpaths
-sed -i 's|^hardcode_libdir_flag_spec=.*|hardcode_libdir_flag_spec=""|g' libtool
-sed -i 's|^runpath_var=LD_RUN_PATH|runpath_var=DIE_RPATH_DIE|g' libtool
-make %{?_smp_mflags}
+autoreconf --force --install
+%configure
+##sed -i 's|^hardcode_libdir_flag_spec=.*|hardcode_libdir_flag_spec=""|g' libtool
+##sed -i 's|^runpath_var=LD_RUN_PATH|runpath_var=DIE_RPATH_DIE|g' libtool
+%{__make} %{?_smp_mflags} V=1
 
 %install
-make install DESTDIR=%{buildroot} INSTALL="%{__install} -p"
+%{__make} install DESTDIR=%{buildroot} INSTALL="%{__install} -p"
+
+#Fix wrong permition on file hwloc-assembler-remote => I have reported this to upstream already
+%{__chmod} 0755 %{buildroot}%{_bindir}/hwloc-assembler-remote
 
 # We don't ship .la files.
-find %{buildroot} -name '*.la' -exec rm -f {} ';'
+%{__rm} -rf %{buildroot}%{_libdir}/libhwloc.la
 
-cp -p AUTHORS COPYING NEWS README VERSION %{buildroot}%{_pkgdocdir}
-cp -pr doc/examples %{buildroot}%{_pkgdocdir}
-# Fix for BZ1253977
-mv  %{buildroot}%{_pkgdocdir}/examples/Makefile  %{buildroot}%{_pkgdocdir}/examples/Makefile_%{_arch}
-
-desktop-file-validate %{buildroot}/%{_datadir}/applications/lstopo.desktop
-
-# Avoid making hwloc-gui depend on hwloc
-rm %{buildroot}%{_mandir}/man1/lstopo.1
-ln %{buildroot}%{_mandir}/man1/lstopo-no-graphics.1 %{buildroot}%{_mandir}/man1/lstopo.1
-
-# Deal with service file
-# https://github.com/open-mpi/hwloc/issues/221
-%ifarch %{ix86} x86_64
-mkdir -p %{buildroot}%{_unitdir}
-mv %{buildroot}%{_datadir}/%{name}/hwloc-dump-hwdata.service %{buildroot}%{_unitdir}/
-%else
-rm %{buildroot}%{_datadir}/%{name}/hwloc-dump-hwdata.service
-%endif
+%{__mv} %{buildroot}%{_defaultdocdir}/%{name} %{buildroot}%{_defaultdocdir}/%{name}-%{version}
+%{__cp} -p AUTHORS COPYING NEWS README VERSION %{buildroot}%{_defaultdocdir}/%{name}-%{version}
+%{__cp} -p doc/hwloc-hello.c %{buildroot}%{_defaultdocdir}/%{name}-%{version}
 
 %check
-LD_LIBRARY_PATH=$PWD/src/.libs make check
-
-%ifarch %{ix86} x86_64
-%post
-%systemd_post hwloc-dump-hwdata.service
-
-%preun
-%systemd_preun hwloc-dump-hwdata.service
-
-%postun
-%systemd_postun_with_restart hwloc-dump-hwdata.service
-%endif
+%{__make} check
 
 %post libs -p /sbin/ldconfig
 
 %postun libs -p /sbin/ldconfig
 
 %files
+%defattr(-, root, root, -)
 %{_bindir}/%{name}*
 %{_bindir}/lstopo-no-graphics
 %{_mandir}/man1/%{name}*
 %{_mandir}/man1/lstopo-no-graphics*
-%ifarch %{ix86} x86_64
-%{_sbindir}/hwloc-dump-hwdata
-%{_unitdir}/hwloc-dump-hwdata.service
-%endif
 
 %files devel
+%defattr(-, root, root, -)
 %{_libdir}/pkgconfig/*
 %{_mandir}/man3/*
 %dir %{_includedir}/%{name}
 %{_includedir}/%{name}/*
 %{_includedir}/%{name}.h
-%{_pkgdocdir}/examples
+%{_defaultdocdir}/%{name}-%{version}/*c
 %{_libdir}/*.so
 
 %files libs
+%defattr(-, root, root, -)
 %{_mandir}/man7/%{name}*
 %dir %{_datadir}/%{name}
 %{_datadir}/%{name}/%{name}.dtd
 %{_datadir}/%{name}/%{name}-valgrind.supp
-%dir %{_pkgdocdir}/
-%{_pkgdocdir}/*[^c]
-%{_libdir}/libhwloc*so.5*
+%dir %{_defaultdocdir}/%{name}-%{version}
+%{_defaultdocdir}/%{name}-%{version}/*[^c]
+%{_libdir}/libhwloc*so.*
 
 %files gui
 %{_bindir}/lstopo
-%{_mandir}/man1/lstopo.1*
-%{_datadir}/applications/lstopo.desktop
+%{_mandir}/man1/lstopo.*
 
-%files plugins
-%dir %{_libdir}/%{name}
-%{_libdir}/%{name}/hwloc*
 
 %changelog
-* Thu Nov 16 2017 Michal Schmidt <mschmidt@redhat.com> - 1.11.8-4
-- Rebase to 1.11.8.
-- Deal with rpaths using the method from Packaging Guidelines.
-- BuildRequire rdma-core-devel on s390(x).
-- Fix scriptlets related to hwloc-dump-hwdata.service.
-- Configure with /run as runstatedir.
-- Spec file cleanup.
-- Related: rhbz1482585
-
-* Tue Nov 7 2017 Don Zickus <dzickus@redhat.com> - 1.11.5-2
-- Build failure due to extra service file
-- Resolves: rhbz1482585
-
-* Fri Oct 27 2017 Don Zickus <dzickus@redhat.com> - 1.11.5-1
-- Rebase to 1.11.5
-- Resolves: rhbz1482585
-
-* Fri Mar 24 2017 Don Zickus <dzickus@redhat.com> - 1.11.2-2
-- Add support for Knights Mill
-  Resolves: rhbz1381313
-
-* Fri Jul  1 2016 Don Zickus <dzickus@redhat.com> - 1.11.2-1
-- Rebase to 1.11.2
-- Xeon Phi dump support
-  Resolves: rhbz1273325 rhbz1314459
-
-* Tue Jul 14 2015 Don Zickus <dzickus@redhat.com> - 1.7-5
-- Xeon Phi fixes
-  Resolves: rhbz1227786
-
-* Tue Jul 14 2015 Don Zickus <dzickus@redhat.com> - 1.7-4
-- Fix dangling symlink for hwloc-ls manpage
-  Resolves: rhbz1081236
-  Add desktop entry for lstopo
-  Resolves: rhbz1229313
-
 * Fri Jan 24 2014 Daniel Mach <dmach@redhat.com> - 1.7-3
 - Mass rebuild 2014-01-24
 
@@ -262,7 +171,7 @@ LD_LIBRARY_PATH=$PWD/src/.libs make check
 * Thu Apr 12 2012 Dan Horák <dan[at]danny.cz> - 1.4-2
 - no InfiniBand on s390(x)
 
-* Tue Feb 14 2012 Jirka Hladky  <hladky.jiri@gmail.com> - 1.4-1
+* Wed Feb 14 2012 Jirka Hladky  <hladky.jiri@gmail.com> - 1.4-1
 - Update to 1.4 release
 
 * Mon Nov 14 2011 Peter Robinson <pbrobinson@fedoraproject.org> - 1.3-1

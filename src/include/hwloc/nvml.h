@@ -1,5 +1,5 @@
 /*
- * Copyright © 2012-2016 Inria.  All rights reserved.
+ * Copyright © 2012-2013 Inria.  All rights reserved.
  * See COPYING in top-level directory.
  */
 
@@ -28,11 +28,7 @@ extern "C" {
 #endif
 
 
-/** \defgroup hwlocality_nvml Interoperability with the NVIDIA Management Library
- *
- * This interface offers ways to retrieve topology information about
- * devices managed by the NVIDIA Management Library (NVML).
- *
+/** \defgroup hwlocality_nvml NVIDIA Management Library Specific Functions
  * @{
  */
 
@@ -80,8 +76,8 @@ hwloc_nvml_get_device_cpuset(hwloc_topology_t topology __hwloc_attribute_unused,
   if (!sysfile)
     return -1;
 
-  if (hwloc_linux_parse_cpumap_file(sysfile, set) < 0
-      || hwloc_bitmap_iszero(set))
+  hwloc_linux_parse_cpumap_file(sysfile, set);
+  if (hwloc_bitmap_iszero(set))
     hwloc_bitmap_copy(set, hwloc_topology_get_complete_cpuset(topology));
 
   fclose(sysfile);

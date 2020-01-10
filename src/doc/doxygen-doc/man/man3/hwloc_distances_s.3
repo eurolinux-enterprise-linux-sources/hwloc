@@ -1,8 +1,8 @@
-.TH "hwloc_distances_s" 3 "Wed Sep 6 2017" "Version 1.11.8" "Hardware Locality (hwloc)" \" -*- nroff -*-
+.TH "hwloc_distances_s" 3 "Sun Apr 7 2013" "Version 1.7" "Hardware Locality (hwloc)" \" -*- nroff -*-
 .ad l
 .nh
 .SH NAME
-hwloc_distances_s
+hwloc_distances_s \- 
 .SH SYNOPSIS
 .br
 .PP
@@ -33,7 +33,7 @@ Distances between objects\&.
 
 One object may contain a distance structure describing distances between all its descendants at a given relative depth\&. If the containing object is the root object of the topology, then the distances are available for all objects in the machine\&.
 .PP
-If the \fClatency\fP pointer is not \fCNULL\fP, the pointed array contains memory latencies (non-zero values), see below\&.
+If the \fClatency\fP pointer is not \fCNULL\fP, the pointed array contains memory latencies (non-zero values), as defined by the ACPI SLIT specification\&.
 .PP
 In the future, some other types of distances may be considered\&. In these cases, \fClatency\fP may be \fCNULL\fP\&. 
 .SH "Field Documentation"
@@ -41,9 +41,7 @@ In the future, some other types of distances may be considered\&. In these cases
 .SS "float* hwloc_distances_s::latency"
 
 .PP
-Matrix of latencies between objects, stored as a one-dimension array\&. May be \fCNULL\fP if the distances considered here are not latencies\&. Unless defined by the user, this currently contains latencies between NUMA nodes (as reported in the System Locality Distance Information Table (SLIT) in the ACPI specification), which may or may not be accurate\&. It corresponds to the latency for accessing the memory of one node from a core in another node\&.
-.PP
-Values are normalized to get 1\&.0 as the minimal value in the matrix\&. Latency from i-th to j-th object is stored in slot i*nbobjs+j\&. 
+Matrix of latencies between objects, stored as a one-dimension array\&. May be \fCNULL\fP if the distances considered here are not latencies\&. Values are normalized to get 1\&.0 as the minimal value in the matrix\&. Latency from i-th to j-th object is stored in slot i*nbobjs+j\&. 
 .SS "float hwloc_distances_s::latency_base"
 
 .PP
@@ -55,7 +53,7 @@ The maximal value in the latency matrix\&.
 .SS "unsigned hwloc_distances_s::nbobjs"
 
 .PP
-Number of objects considered in the matrix\&. It is the number of descendant objects at \fCrelative_depth\fP below the containing object\&. It corresponds to the result of \fBhwloc_get_nbobjs_inside_cpuset_by_depth()\fP\&. 
+Number of objects considered in the matrix\&. It is the number of descendant objects at \fCrelative_depth\fP below the containing object\&. It corresponds to the result of hwloc_get_nbobjs_inside_cpuset_by_depth\&. 
 .SS "unsigned hwloc_distances_s::relative_depth"
 
 .PP

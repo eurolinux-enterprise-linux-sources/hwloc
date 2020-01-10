@@ -1,7 +1,7 @@
 /*
  * Copyright © 2009      CNRS
- * Copyright © 2009-2017 Inria.  All rights reserved.
- * Copyright © 2009-2012 Université Bordeaux
+ * Copyright © 2009-2012 Inria.  All rights reserved.
+ * Copyright © 2009-2012 Université Bordeaux 1
  * Copyright © 2009-2011 Cisco Systems, Inc.  All rights reserved.
  *
  * See COPYING in top-level directory.
@@ -58,7 +58,6 @@ struct hwloc_topology {
   int is_thissystem;
   int is_loaded;
   hwloc_pid_t pid;                                      /* Process ID the topology is view from, 0 for self */
-  void *userdata;
 
   unsigned bridge_nbobjects;
   struct hwloc_obj **bridge_level;
@@ -94,22 +93,18 @@ struct hwloc_topology {
     int (*get_proc_membind)(hwloc_topology_t topology, hwloc_pid_t pid, hwloc_nodeset_t nodeset, hwloc_membind_policy_t * policy, int flags);
     int (*set_area_membind)(hwloc_topology_t topology, const void *addr, size_t len, hwloc_const_nodeset_t nodeset, hwloc_membind_policy_t policy, int flags);
     int (*get_area_membind)(hwloc_topology_t topology, const void *addr, size_t len, hwloc_nodeset_t nodeset, hwloc_membind_policy_t * policy, int flags);
-    int (*get_area_memlocation)(hwloc_topology_t topology, const void *addr, size_t len, hwloc_nodeset_t nodeset, int flags);
     /* This has to return the same kind of pointer as alloc_membind, so that free_membind can be used on it */
     void *(*alloc)(hwloc_topology_t topology, size_t len);
     /* alloc_membind has to always succeed if !(flags & HWLOC_MEMBIND_STRICT).
      * see hwloc_alloc_or_fail which is convenient for that.  */
     void *(*alloc_membind)(hwloc_topology_t topology, size_t len, hwloc_const_nodeset_t nodeset, hwloc_membind_policy_t policy, int flags);
     int (*free_membind)(hwloc_topology_t topology, void *addr, size_t len);
-
-    int (*get_allowed_resources)(hwloc_topology_t topology);
   } binding_hooks;
 
   struct hwloc_topology_support support;
 
   void (*userdata_export_cb)(void *reserved, struct hwloc_topology *topology, struct hwloc_obj *obj);
   void (*userdata_import_cb)(struct hwloc_topology *topology, struct hwloc_obj *obj, const char *name, const void *buffer, size_t length);
-  int userdata_not_decoded;
 
   struct hwloc_os_distances_s {
     hwloc_obj_type_t type;
@@ -141,15 +136,8 @@ extern unsigned hwloc_fallback_nbprocessors(struct hwloc_topology *topology);
 extern void hwloc_connect_children(hwloc_obj_t obj);
 extern int hwloc_connect_levels(hwloc_topology_t topology);
 
-extern int hwloc__object_cpusets_compare_first(hwloc_obj_t obj1, hwloc_obj_t obj2);
-
 extern void hwloc_topology_setup_defaults(struct hwloc_topology *topology);
 extern void hwloc_topology_clear(struct hwloc_topology *topology);
-
-extern void hwloc__add_info(struct hwloc_obj_info_s **infosp, unsigned *countp, const char *name, const char *value);
-extern char ** hwloc__find_info_slot(struct hwloc_obj_info_s **infosp, unsigned *countp, const char *name);
-extern void hwloc__move_infos(struct hwloc_obj_info_s **dst_infosp, unsigned *dst_countp, struct hwloc_obj_info_s **src_infosp, unsigned *src_countp);
-extern void hwloc__free_infos(struct hwloc_obj_info_s *infos, unsigned count);
 
 /* set native OS binding hooks */
 extern void hwloc_set_native_binding_hooks(struct hwloc_binding_hooks *hooks, struct hwloc_topology_support *support);
@@ -196,15 +184,8 @@ extern void hwloc_set_netbsd_hooks(struct hwloc_binding_hooks *binding_hooks, st
 extern void hwloc_set_hpux_hooks(struct hwloc_binding_hooks *binding_hooks, struct hwloc_topology_support *support);
 #endif /* HWLOC_HPUX_SYS */
 
-extern int hwloc_look_hardwired_fujitsu_k(struct hwloc_topology *topology);
-extern int hwloc_look_hardwired_fujitsu_fx10(struct hwloc_topology *topology);
-extern int hwloc_look_hardwired_fujitsu_fx100(struct hwloc_topology *topology);
-
-/* Insert uname-specific names/values in the object infos array.
- * If cached_uname isn't NULL, it is used as a struct utsname instead of recalling uname.
- * Any field that starts with \0 is ignored.
- */
-extern void hwloc_add_uname_info(struct hwloc_topology *topology, void *cached_uname);
+/* Insert uname-specific names/values in the object infos array */
+extern void hwloc_add_uname_info(struct hwloc_topology *topology);
 
 /* Free obj and its attributes assuming it doesn't have any children/parent anymore */
 extern void hwloc_free_unlinked_object(hwloc_obj_t obj);
@@ -235,6 +216,7 @@ hwloc_alloc_or_fail(hwloc_topology_t topology, size_t len, int flags)
 }
 
 extern void hwloc_distances_init(struct hwloc_topology *topology);
+extern void hwloc_distances_clear(struct hwloc_topology *topology);
 extern void hwloc_distances_destroy(struct hwloc_topology *topology);
 extern void hwloc_distances_set(struct hwloc_topology *topology, hwloc_obj_type_t type, unsigned nbobjs, unsigned *indexes, hwloc_obj_t *objs, float *distances, int force);
 extern void hwloc_distances_set_from_env(struct hwloc_topology *topology);
@@ -264,13 +246,8 @@ extern void hwloc_group_by_distances(struct hwloc_topology *topology);
   }                                    \
 } while(0)
 #else /* HAVE_USELOCALE */
-#if __HWLOC_HAVE_ATTRIBUTE_UNUSED
 #define hwloc_localeswitch_declare int __dummy_nolocale __hwloc_attribute_unused
 #define hwloc_localeswitch_init()
-#else
-#define hwloc_localeswitch_declare int __dummy_nolocale
-#define hwloc_localeswitch_init() (void)__dummy_nolocale
-#endif
 #define hwloc_localeswitch_fini()
 #endif /* HAVE_USELOCALE */
 
@@ -305,36 +282,18 @@ extern int hwloc_decode_from_base64(char const *src, char *target, size_t targsi
  * to a colon or \0 */
 extern int hwloc_namecoloncmp(const char *haystack, const char *needle, size_t n);
 
-#if HWLOC_HAVE_ATTRIBUTE_FORMAT
+#ifdef HWLOC_HAVE_ATTRIBUTE_FORMAT
+# if HWLOC_HAVE_ATTRIBUTE_FORMAT
 #  define __hwloc_attribute_format(type, str, arg)  __attribute__((__format__(type, str, arg)))
-#else
+# else
 #  define __hwloc_attribute_format(type, str, arg)
+# endif
+#else
+# define __hwloc_attribute_format(type, str, arg)
 #endif
-
-#define hwloc_memory_size_printf_value(_size, _verbose) \
-  ((_size) < (10ULL<<20) || _verbose ? (((_size)>>9)+1)>>1 : (_size) < (10ULL<<30) ? (((_size)>>19)+1)>>1 : (_size) < (10ULL<<40) ? (((_size)>>29)+1)>>1 : (((_size)>>39)+1)>>1)
-#define hwloc_memory_size_printf_unit(_size, _verbose) \
-  ((_size) < (10ULL<<20) || _verbose ? "KB" : (_size) < (10ULL<<30) ? "MB" : (_size) < (10ULL<<40) ? "GB" : "TB")
 
 /* On some systems, snprintf returns the size of written data, not the actually
  * required size.  hwloc_snprintf always report the actually required size. */
 extern int hwloc_snprintf(char *str, size_t size, const char *format, ...) __hwloc_attribute_format(printf, 3, 4);
-
-extern void hwloc_obj_add_info_nodup(hwloc_obj_t obj, const char *name, const char *value, int nodup);
-
-/* Return the name of the currently running program, if supported.
- * If not NULL, must be freed by the caller.
- */
-extern char * hwloc_progname(struct hwloc_topology *topology);
-
-#define HWLOC_BITMAP_EQUAL 0       /* Bitmaps are equal */
-#define HWLOC_BITMAP_INCLUDED 1    /* First bitmap included in second */
-#define HWLOC_BITMAP_CONTAINS 2    /* First bitmap contains second */
-#define HWLOC_BITMAP_INTERSECTS 3  /* Bitmaps intersect without any inclusion */
-#define HWLOC_BITMAP_DIFFERENT  4  /* Bitmaps do not intersect */
-
-/** \brief Compare bitmaps \p bitmap1 and \p bitmap2 from an inclusion point of view.
- */
-HWLOC_DECLSPEC int hwloc_bitmap_compare_inclusion(hwloc_const_bitmap_t bitmap1, hwloc_const_bitmap_t bitmap2) __hwloc_attribute_pure;
 
 #endif /* HWLOC_PRIVATE_H */

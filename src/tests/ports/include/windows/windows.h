@@ -1,6 +1,6 @@
 /*
- * Copyright © 2009-2016 Inria.  All rights reserved.
- * Copyright © 2009-2012 Université Bordeaux
+ * Copyright © 2009 inria.  All rights reserved.
+ * Copyright © 2009-2012 Université Bordeaux 1
  * See COPYING in top-level directory.
  */
 
@@ -18,12 +18,10 @@ typedef uint64_t DWORDLONG;
 typedef DWORDLONG ULONGLONG, *PULONGLONG;
 typedef unsigned char BYTE, UCHAR;
 typedef unsigned short WORD, USHORT;
-typedef unsigned int UINT, UINT_PTR, DWORD, *PDWORD, *LPDWORD;
-typedef unsigned long ULONG_PTR, DWORD_PTR, *PDWORD_PTR;
+typedef unsigned long ULONG_PTR, DWORD_PTR, DWORD, *PDWORD, *PDWORD_PTR;
 typedef const char *LPCSTR;
-typedef int (*FARPROC)(void);
+typedef int (*FARPROC)();
 typedef void *PVOID,*LPVOID;
-typedef void VOID;
 typedef ULONG_PTR SIZE_T;
 
 /* This is to cope with linux using integers for hwloc_pid_t and hwloc_thread_t
@@ -67,16 +65,8 @@ BOOL GetNumaAvailableMemoryNode(UCHAR Node, PULONGLONG AvailableBytes);
 
 typedef struct _SYSTEM_INFO {
   DWORD dwPageSize;
-  DWORD_PTR dwActiveProcessorMask;
-  DWORD dwNumberOfProcessors;
 } SYSTEM_INFO, *LPSYSTEM_INFO;
 
 void WINAPI GetSystemInfo(LPSYSTEM_INFO lpSystemInfo);
-
-/* hide Linux' host disabling _SC_LARGE_PAGESIZE */
-#undef HAVE_DECL__SC_LARGE_PAGESIZE
-#define HAVE_DECL__SC_LARGE_PAGESIZE 1
-#undef _SC_LARGE_PAGESIZE
-#define _SC_LARGE_PAGESIZE 33
 
 #endif /* HWLOC_PORT_WINDOWS_WINDOWS_H */

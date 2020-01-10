@@ -1,6 +1,6 @@
 /*
- * Copyright © 2010-2016 Inria.  All rights reserved.
- * Copyright © 2010-2011 Université Bordeaux
+ * Copyright © 2010-2013 Inria.  All rights reserved.
+ * Copyright © 2010-2011 Université Bordeaux 1
  * Copyright © 2011 Cisco Systems, Inc.  All rights reserved.
  * See COPYING in top-level directory.
  */
@@ -31,11 +31,7 @@ extern "C" {
 #endif
 
 
-/** \defgroup hwlocality_cuda Interoperability with the CUDA Driver API
- *
- * This interface offers ways to retrieve topology information about
- * CUDA devices when using the CUDA Driver API.
- *
+/** \defgroup hwlocality_cuda CUDA Driver API Specific Functions
  * @{
  */
 
@@ -49,7 +45,7 @@ hwloc_cuda_get_device_pci_ids(hwloc_topology_t topology __hwloc_attribute_unused
 {
   CUresult cres;
 
-#if CUDA_VERSION >= 4000
+#ifdef CU_DEVICE_ATTRIBUTE_PCI_DOMAIN_ID
   cres = cuDeviceGetAttribute(domain, CU_DEVICE_ATTRIBUTE_PCI_DOMAIN_ID, cudevice);
   if (cres != CUDA_SUCCESS) {
     errno = ENOSYS;
@@ -112,8 +108,8 @@ hwloc_cuda_get_device_cpuset(hwloc_topology_t topology __hwloc_attribute_unused,
   if (!sysfile)
     return -1;
 
-  if (hwloc_linux_parse_cpumap_file(sysfile, set) < 0
-      || hwloc_bitmap_iszero(set))
+  hwloc_linux_parse_cpumap_file(sysfile, set);
+  if (hwloc_bitmap_iszero(set))
     hwloc_bitmap_copy(set, hwloc_topology_get_complete_cpuset(topology));
 
   fclose(sysfile);

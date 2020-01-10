@@ -1,6 +1,6 @@
 /*
- * Copyright © 2009-2017 Inria.  All rights reserved.
- * Copyright © 2012 Université Bordeaux
+ * Copyright © 2009-2013 Inria.  All rights reserved.
+ * Copyright © 2012 Université Bordeau 1
  * See COPYING in top-level directory.
  */
 
@@ -8,7 +8,6 @@
 #include <hwloc.h>
 #include <private/private.h>
 #include <private/xml.h>
-#include <private/misc.h>
 
 #define HWLOC_COMPONENT_STOP_NAME "stop"
 #define HWLOC_COMPONENT_EXCLUDE_CHAR '-'
@@ -25,15 +24,8 @@ static unsigned hwloc_components_users = 0; /* first one initializes, last ones 
 static int hwloc_components_verbose = 0;
 #ifdef HWLOC_HAVE_PLUGINS
 static int hwloc_plugins_verbose = 0;
-static const char * hwloc_plugins_blacklist = NULL;
 #endif
 
-/* hwloc_components_mutex serializes:
- * - loading/unloading plugins, and modifications of the hwloc_plugins list
- * - calls to ltdl, including in hwloc_check_plugin_namespace()
- * - registration of components with hwloc_disc_component_register()
- *   and hwloc_xml_callbacks_register()
- */
 #ifdef HWLOC_WIN_SYS
 /* Basic mutex on top of InterlockedCompareExchange() on windows,
  * Far from perfect, but easy to maintain, and way enough given that this code will never be needed for real. */
@@ -91,12 +83,6 @@ hwloc__dlforeach_cb(const char *filename, void *_data __hwloc_attribute_unused)
   else
     basename++;
 
-  if (hwloc_plugins_blacklist && strstr(hwloc_plugins_blacklist, basename)) {
-    if (hwloc_plugins_verbose)
-      fprintf(stderr, "Plugin `%s' is blacklisted in the environment\n", basename);
-    goto out;
-  }
-
   /* dlopen and get the component structure */
   handle = lt_dlopenext(filename);
   if (!handle) {
@@ -104,7 +90,7 @@ hwloc__dlforeach_cb(const char *filename, void *_data __hwloc_attribute_unused)
       fprintf(stderr, "Failed to load plugin: %s\n", lt_dlerror());
     goto out;
   }
-  componentsymbolname = malloc(strlen(basename)+10+1);
+  componentsymbolname = malloc(6+strlen(basename)+10+1);
   sprintf(componentsymbolname, "%s_component", basename);
   component = lt_dlsym(handle, componentsymbolname);
   if (!component) {
@@ -115,7 +101,7 @@ hwloc__dlforeach_cb(const char *filename, void *_data __hwloc_attribute_unused)
   }
   if (component->abi != HWLOC_COMPONENT_ABI) {
     if (hwloc_plugins_verbose)
-      fprintf(stderr, "Plugin symbol ABI %u instead of %d\n",
+      fprintf(stderr, "Plugin symbol ABI %u instead of %u\n",
 	      component->abi, HWLOC_COMPONENT_ABI);
     goto out_with_handle;
   }
@@ -197,15 +183,13 @@ hwloc_plugins_exit(void)
 static int
 hwloc_plugins_init(void)
 {
-  const char *verboseenv;
-  char *path = HWLOC_PLUGINS_PATH;
-  const char *env;
+  char *verboseenv;
+  char *path = HWLOC_PLUGINS_DIR;
+  char *env;
   int err;
 
   verboseenv = getenv("HWLOC_PLUGINS_VERBOSE");
   hwloc_plugins_verbose = verboseenv ? atoi(verboseenv) : 0;
-
-  hwloc_plugins_blacklist = getenv("HWLOC_PLUGINS_BLACKLIST");
 
   err = lt_dlinit();
   if (err)
@@ -313,16 +297,13 @@ hwloc_disc_component_register(struct hwloc_disc_component *component,
 
 #include <static-components.h>
 
-static void (**hwloc_component_finalize_cbs)(unsigned long);
-static unsigned hwloc_component_finalize_cb_count;
-
 void
 hwloc_components_init(struct hwloc_topology *topology __hwloc_attribute_unused)
 {
 #ifdef HWLOC_HAVE_PLUGINS
   struct hwloc__plugin_desc *desc;
 #endif
-  const char *verboseenv;
+  char *verboseenv;
   unsigned i;
 
   HWLOC_COMPONENTS_LOCK();
@@ -339,23 +320,6 @@ hwloc_components_init(struct hwloc_topology *topology __hwloc_attribute_unused)
   hwloc_plugins_init();
 #endif
 
-  hwloc_component_finalize_cbs = NULL;
-  hwloc_component_finalize_cb_count = 0;
-  /* count the max number of finalize callbacks */
-  for(i=0; NULL != hwloc_static_components[i]; i++)
-    hwloc_component_finalize_cb_count++;
-#ifdef HWLOC_HAVE_PLUGINS
-  for(desc = hwloc_plugins; NULL != desc; desc = desc->next)
-    hwloc_component_finalize_cb_count++;
-#endif
-  if (hwloc_component_finalize_cb_count) {
-    hwloc_component_finalize_cbs = calloc(hwloc_component_finalize_cb_count,
-					  sizeof(*hwloc_component_finalize_cbs));
-    assert(hwloc_component_finalize_cbs);
-    /* forget that max number and recompute the real one below */
-    hwloc_component_finalize_cb_count = 0;
-  }
-
   /* hwloc_static_components is created by configure in static-components.h */
   for(i=0; NULL != hwloc_static_components[i]; i++) {
     if (hwloc_static_components[i]->flags) {
@@ -363,18 +327,6 @@ hwloc_components_init(struct hwloc_topology *topology __hwloc_attribute_unused)
 	      hwloc_static_components[i]->flags);
       continue;
     }
-
-    /* initialize the component */
-    if (hwloc_static_components[i]->init && hwloc_static_components[i]->init(0) < 0) {
-      if (hwloc_components_verbose)
-	fprintf(stderr, "Ignoring static component, failed to initialize\n");
-      continue;
-    }
-    /* queue ->finalize() callback if any */
-    if (hwloc_static_components[i]->finalize)
-      hwloc_component_finalize_cbs[hwloc_component_finalize_cb_count++] = hwloc_static_components[i]->finalize;
-
-    /* register for real now */
     if (HWLOC_COMPONENT_TYPE_DISC == hwloc_static_components[i]->type)
       hwloc_disc_component_register(hwloc_static_components[i]->data, NULL);
     else if (HWLOC_COMPONENT_TYPE_XML == hwloc_static_components[i]->type)
@@ -391,18 +343,6 @@ hwloc_components_init(struct hwloc_topology *topology __hwloc_attribute_unused)
 	      desc->name, desc->component->flags);
       continue;
     }
-
-    /* initialize the component */
-    if (desc->component->init && desc->component->init(0) < 0) {
-      if (hwloc_components_verbose)
-	fprintf(stderr, "Ignoring plugin `%s', failed to initialize\n", desc->name);
-      continue;
-    }
-    /* queue ->finalize() callback if any */
-    if (desc->component->finalize)
-      hwloc_component_finalize_cbs[hwloc_component_finalize_cb_count++] = desc->component->finalize;
-
-    /* register for real now */
     if (HWLOC_COMPONENT_TYPE_DISC == desc->component->type)
       hwloc_disc_component_register(desc->component->data, desc->filename);
     else if (HWLOC_COMPONENT_TYPE_XML == desc->component->type)
@@ -442,11 +382,6 @@ hwloc_disc_component_force_enable(struct hwloc_topology *topology,
   struct hwloc_disc_component *comp;
   struct hwloc_backend *backend;
 
-  if (topology->is_loaded) {
-    errno = EBUSY;
-    return -1;
-  }
-
   comp = hwloc_disc_component_find(type, name);
   if (!comp) {
     errno = ENOSYS;
@@ -457,7 +392,7 @@ hwloc_disc_component_force_enable(struct hwloc_topology *topology,
   if (backend) {
     backend->envvar_forced = envvar_forced;
     if (topology->backends)
-      hwloc_backends_disable_all(topology);
+      hwloc_backends_reset(topology);
     return hwloc_backend_enable(topology, backend);
   } else
     return -1;
@@ -468,15 +403,14 @@ hwloc_disc_component_try_enable(struct hwloc_topology *topology,
 				struct hwloc_disc_component *comp,
 				const char *comparg,
 				unsigned *excludes,
-				int envvar_forced)
+				int envvar_forced,
+				int verbose_errors)
 {
   struct hwloc_backend *backend;
   int err;
 
   if ((*excludes) & comp->type) {
-    if (hwloc_components_verbose)
-      /* do not warn if envvar_forced since system-wide HWLOC_COMPONENTS must be silently ignored after set_xml() etc.
-       */
+    if (hwloc_components_verbose || verbose_errors)
       fprintf(stderr, "Excluding %s discovery component `%s', conflicts with excludes 0x%x\n",
 	      hwloc_disc_component_type_string(comp->type), comp->name, *excludes);
     return -1;
@@ -484,7 +418,7 @@ hwloc_disc_component_try_enable(struct hwloc_topology *topology,
 
   backend = comp->instantiate(comp, comparg, NULL, NULL);
   if (!backend) {
-    if (hwloc_components_verbose || envvar_forced)
+    if (verbose_errors)
       fprintf(stderr, "Failed to instantiate discovery component `%s'\n", comp->name);
     return -1;
   }
@@ -506,11 +440,9 @@ hwloc_disc_components_enable_others(struct hwloc_topology *topology)
   struct hwloc_backend *backend;
   unsigned excludes = 0;
   int tryall = 1;
-  const char *_env;
-  char *env; /* we'll to modify the env value, so duplicate it */
+  char *env;
 
-  _env = getenv("HWLOC_COMPONENTS");
-  env = _env ? strdup(_env) : NULL;
+  env = getenv("HWLOC_COMPONENTS");
 
   /* compute current excludes */
   backend = topology->backends;
@@ -528,14 +460,14 @@ hwloc_disc_components_enable_others(struct hwloc_topology *topology)
       s = strcspn(curenv, HWLOC_COMPONENT_SEPS);
       if (s) {
 	char *arg;
-	char c, d;
+	char c;
 
 	/* replace libpci with pci for backward compatibility with v1.6 */
-	if (!strncmp(curenv, "libpci", 6) && s == 6) {
+	if (!strncmp(curenv, "libpci", s)) {
 	  curenv[0] = curenv[1] = curenv[2] = *HWLOC_COMPONENT_SEPS;
 	  curenv += 3;
 	  s -= 3;
-	} else if (curenv[0] == HWLOC_COMPONENT_EXCLUDE_CHAR && !strncmp(curenv+1, "libpci", 6) && s == 7 ) {
+	} else if (curenv[0] == HWLOC_COMPONENT_EXCLUDE_CHAR && !strncmp(curenv+1, "libpci", s-1)) {
 	  curenv[3] = curenv[0];
 	  curenv[0] = curenv[1] = curenv[2] = *HWLOC_COMPONENT_SEPS;
 	  curenv += 3;
@@ -558,21 +490,19 @@ hwloc_disc_components_enable_others(struct hwloc_topology *topology)
 
 	arg = strchr(curenv, '=');
 	if (arg) {
-	  d = *arg;
 	  *arg = '\0';
+	  arg++;
 	}
 
 	comp = hwloc_disc_component_find(-1, curenv);
 	if (comp) {
-	  hwloc_disc_component_try_enable(topology, comp, arg ? arg+1 : NULL, &excludes, 1 /* envvar forced */);
+	  hwloc_disc_component_try_enable(topology, comp, arg, &excludes, 1 /* envvar forced */, 1 /* envvar forced need warnings */);
 	} else {
 	  fprintf(stderr, "Cannot find discovery component `%s'\n", curenv);
 	}
 
-	/* restore chars (the second loop below needs env to be unmodified) */
+	/* restore last char (the second loop below needs env to be unmodified) */
 	curenv[s] = c;
-	if (arg)
-	  *arg = d;
       }
 
 nextname:
@@ -594,7 +524,7 @@ nextname:
 	char *curenv = env;
 	while (*curenv) {
 	  size_t s = strcspn(curenv, HWLOC_COMPONENT_SEPS);
-	  if (curenv[0] == HWLOC_COMPONENT_EXCLUDE_CHAR && !strncmp(curenv+1, comp->name, s-1) && strlen(comp->name) == s-1) {
+	  if (curenv[0] == HWLOC_COMPONENT_EXCLUDE_CHAR && !strncmp(curenv+1, comp->name, s-1)) {
 	    if (hwloc_components_verbose)
 	      fprintf(stderr, "Excluding %s discovery component `%s' because of HWLOC_COMPONENTS environment variable\n",
 	    hwloc_disc_component_type_string(comp->type), comp->name);
@@ -606,7 +536,7 @@ nextname:
 	    curenv++;
 	}
       }
-      hwloc_disc_component_try_enable(topology, comp, NULL, &excludes, 0 /* defaults, not envvar forced */);
+      hwloc_disc_component_try_enable(topology, comp, NULL, &excludes, 0 /* defaults, not envvar forced */, 0 /* defaults don't need warnings on conflicts */);
 nextcomp:
       comp = comp->next;
     }
@@ -624,28 +554,17 @@ nextcomp:
     }
     fprintf(stderr, "\n");
   }
-
-  if (env)
-    free(env);
 }
 
 void
 hwloc_components_destroy_all(struct hwloc_topology *topology __hwloc_attribute_unused)
 {
-  unsigned i;
-
   HWLOC_COMPONENTS_LOCK();
   assert(0 != hwloc_components_users);
   if (0 != --hwloc_components_users) {
     HWLOC_COMPONENTS_UNLOCK();
     return;
   }
-
-  for(i=0; i<hwloc_component_finalize_cb_count; i++)
-    hwloc_component_finalize_cbs[hwloc_component_finalize_cb_count-i-1](0);
-  free(hwloc_component_finalize_cbs);
-  hwloc_component_finalize_cbs = NULL;
-  hwloc_component_finalize_cb_count = 0;
 
   /* no need to unlink/free the list of components, they'll be unloaded below */
 
@@ -734,7 +653,7 @@ void
 hwloc_backends_is_thissystem(struct hwloc_topology *topology)
 {
   struct hwloc_backend *backend;
-  const char *local_env;
+  char *local_env;
 
   /* Apply is_thissystem topology flag before we enforce envvar backends.
    * If the application changed the backend with set_foo(),
@@ -819,4 +738,25 @@ hwloc_backends_disable_all(struct hwloc_topology *topology)
     topology->backends = next;
   }
   topology->backends = NULL;
+}
+
+void
+hwloc_backends_reset(struct hwloc_topology *topology)
+{
+  hwloc_backends_disable_all(topology);
+  if (topology->is_loaded) {
+    static int deprecated_warning = 0;
+    if (!deprecated_warning) {
+      if (!getenv("HWLOC_HIDE_DEPRECATED")) {
+	fprintf(stderr, "*** Modifying an already-loaded topology.\n");
+	fprintf(stderr, "*** This non-documented behavior will not be supported in future releases.\n");
+	fprintf(stderr, "*** Set HWLOC_HIDE_DEPRECATED in the environment to hide this message.\n");
+      }
+      deprecated_warning = 1;
+    }
+    hwloc_topology_clear(topology);
+    hwloc_distances_destroy(topology);
+    hwloc_topology_setup_defaults(topology);
+    topology->is_loaded = 0;
+  }
 }

@@ -1,9 +1,8 @@
 /*
- * Copyright © 2012-2017 Inria.  All rights reserved.
+ * Copyright © 2012-2013 Inria.  All rights reserved.
  * See COPYING in top-level directory.
  */
 
-#include <private/autogen/config.h> /* for HWLOC_WIN_SYS */
 #include <hwloc.h>
 
 #include <stdlib.h>
@@ -15,17 +14,6 @@
 #include <errno.h>
 #include <assert.h>
 
-#ifndef HAVE_MKSTEMP
-#include <fcntl.h>
-#include <sys/stat.h>
-#include <sys/types.h>
-static inline int mkstemp(char *name)
-{
-  mktemp(name);
-  return open(name, O_RDWR|O_CREAT, S_IRWXU);
-}
-#endif
-
 /* mostly useful with valgrind, to check if backend cleanup properly */
 
 int main(void)
@@ -34,7 +22,7 @@ int main(void)
   char *xmlbuf;
   int xmlbuflen;
   char xmlfile[] = "hwloc_backends.tmpxml.XXXXXX";
-  int xmlbufok = 0, xmlfileok = 0, xmlfilefd;
+  int xmlbufok = 0, xmlfileok = 0;
   hwloc_obj_t sw;
   int err;
 
@@ -46,8 +34,8 @@ int main(void)
     printf("XML buffer export failed (%s), ignoring\n", strerror(errno));
   else
     xmlbufok = 1;
-  xmlfilefd = mkstemp(xmlfile);
-  if (xmlfilefd < 0 || hwloc_topology_export_xml(topology1, xmlfile) < 0)
+  mktemp(xmlfile);
+  if (hwloc_topology_export_xml(topology1, xmlfile) < 0)
     printf("XML file export failed (%s), ignoring\n", strerror(errno));
   else
     xmlfileok = 1;
@@ -136,10 +124,8 @@ int main(void)
 
   if (xmlbufok)
     hwloc_free_xmlbuffer(topology1, xmlbuf);
-  if (xmlfilefd >= 0) {
+  if (xmlfileok)
     unlink(xmlfile);
-    close(xmlfilefd);
-  }
   hwloc_topology_destroy(topology1);
 
   return 0;

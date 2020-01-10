@@ -1,7 +1,7 @@
 /*
  * Copyright © 2009 CNRS
- * Copyright © 2009-2014 Inria.  All rights reserved.
- * Copyright © 2009-2010, 2012 Université Bordeaux
+ * Copyright © 2009-2012 inria.  All rights reserved.
+ * Copyright © 2009-2010, 2012 Université Bordeaux 1
  * See COPYING in top-level directory.
  */
 
@@ -10,7 +10,18 @@
  *
  * Applications that use both Linux libnuma and hwloc may want to
  * include this file so as to ease conversion between their respective types.
-*/
+ *
+ * This helper also offers a consistent behavior on non-NUMA machines
+ * or non-NUMA-aware kernels by assuming that the machines have a single
+ * NUMA node.
+ *
+ * \note Topology \p topology must match the current machine.
+ *
+ * \note The behavior of libnuma is undefined if the kernel is not NUMA-aware.
+ * (when CONFIG_NUMA is not set in the kernel configuration).
+ * This helper and libnuma may thus not be strictly compatible in this case,
+ * which may be detected by checking whether numa_available() returns -1.
+ */
 
 #ifndef HWLOC_LINUX_LIBNUMA_H
 #define HWLOC_LINUX_LIBNUMA_H
@@ -24,22 +35,7 @@ extern "C" {
 #endif
 
 
-/** \defgroup hwlocality_linux_libnuma_ulongs Interoperability with Linux libnuma unsigned long masks
- *
- * This interface helps converting between Linux libnuma unsigned long masks
- * and hwloc cpusets and nodesets.
- *
- * It also offers a consistent behavior on non-NUMA machines
- * or non-NUMA-aware kernels by assuming that the machines have a single
- * NUMA node.
- *
- * \note Topology \p topology must match the current machine.
- *
- * \note The behavior of libnuma is undefined if the kernel is not NUMA-aware.
- * (when CONFIG_NUMA is not set in the kernel configuration).
- * This helper and libnuma may thus not be strictly compatible in this case,
- * which may be detected by checking whether numa_available() returns -1.
- *
+/** \defgroup hwlocality_linux_libnuma_ulongs Helpers for manipulating Linux libnuma unsigned long masks
  * @{
  */
 
@@ -58,7 +54,7 @@ static __hwloc_inline int
 hwloc_cpuset_to_linux_libnuma_ulongs(hwloc_topology_t topology, hwloc_const_cpuset_t cpuset,
 				    unsigned long *mask, unsigned long *maxnode)
 {
-  int depth = hwloc_get_type_depth(topology, HWLOC_OBJ_NUMANODE);
+  int depth = hwloc_get_type_depth(topology, HWLOC_OBJ_NODE);
   unsigned long outmaxnode = -1;
 
   /* round-up to the next ulong and clear all bytes */
@@ -101,7 +97,7 @@ static __hwloc_inline int
 hwloc_nodeset_to_linux_libnuma_ulongs(hwloc_topology_t topology, hwloc_const_nodeset_t nodeset,
 				      unsigned long *mask, unsigned long *maxnode)
 {
-  int depth = hwloc_get_type_depth(topology, HWLOC_OBJ_NUMANODE);
+  int depth = hwloc_get_type_depth(topology, HWLOC_OBJ_NODE);
   unsigned long outmaxnode = -1;
 
   /* round-up to the next ulong and clear all bytes */
@@ -145,7 +141,7 @@ static __hwloc_inline int
 hwloc_cpuset_from_linux_libnuma_ulongs(hwloc_topology_t topology, hwloc_cpuset_t cpuset,
 				      const unsigned long *mask, unsigned long maxnode)
 {
-  int depth = hwloc_get_type_depth(topology, HWLOC_OBJ_NUMANODE);
+  int depth = hwloc_get_type_depth(topology, HWLOC_OBJ_NODE);
 
   if (depth != HWLOC_TYPE_DEPTH_UNKNOWN) {
     hwloc_obj_t node = NULL;
@@ -178,7 +174,7 @@ static __hwloc_inline int
 hwloc_nodeset_from_linux_libnuma_ulongs(hwloc_topology_t topology, hwloc_nodeset_t nodeset,
 					const unsigned long *mask, unsigned long maxnode)
 {
-  int depth = hwloc_get_type_depth(topology, HWLOC_OBJ_NUMANODE);
+  int depth = hwloc_get_type_depth(topology, HWLOC_OBJ_NODE);
 
   if (depth != HWLOC_TYPE_DEPTH_UNKNOWN) {
     hwloc_obj_t node = NULL;
@@ -202,22 +198,7 @@ hwloc_nodeset_from_linux_libnuma_ulongs(hwloc_topology_t topology, hwloc_nodeset
 
 
 
-/** \defgroup hwlocality_linux_libnuma_bitmask Interoperability with Linux libnuma bitmask
- *
- * This interface helps converting between Linux libnuma bitmasks
- * and hwloc cpusets and nodesets.
- *
- * It also offers a consistent behavior on non-NUMA machines
- * or non-NUMA-aware kernels by assuming that the machines have a single
- * NUMA node.
- *
- * \note Topology \p topology must match the current machine.
- *
- * \note The behavior of libnuma is undefined if the kernel is not NUMA-aware.
- * (when CONFIG_NUMA is not set in the kernel configuration).
- * This helper and libnuma may thus not be strictly compatible in this case,
- * which may be detected by checking whether numa_available() returns -1.
- *
+/** \defgroup hwlocality_linux_libnuma_bitmask Helpers for manipulating Linux libnuma bitmask
  * @{
  */
 
@@ -236,7 +217,7 @@ hwloc_cpuset_to_linux_libnuma_bitmask(hwloc_topology_t topology, hwloc_const_cpu
 static __hwloc_inline struct bitmask *
 hwloc_cpuset_to_linux_libnuma_bitmask(hwloc_topology_t topology, hwloc_const_cpuset_t cpuset)
 {
-  int depth = hwloc_get_type_depth(topology, HWLOC_OBJ_NUMANODE);
+  int depth = hwloc_get_type_depth(topology, HWLOC_OBJ_NODE);
   struct bitmask *bitmask = numa_allocate_cpumask();
   if (!bitmask)
     return NULL;
@@ -269,7 +250,7 @@ hwloc_nodeset_to_linux_libnuma_bitmask(hwloc_topology_t topology, hwloc_const_no
 static __hwloc_inline struct bitmask *
 hwloc_nodeset_to_linux_libnuma_bitmask(hwloc_topology_t topology, hwloc_const_nodeset_t nodeset)
 {
-  int depth = hwloc_get_type_depth(topology, HWLOC_OBJ_NUMANODE);
+  int depth = hwloc_get_type_depth(topology, HWLOC_OBJ_NODE);
   struct bitmask *bitmask = numa_allocate_cpumask();
   if (!bitmask)
     return NULL;
@@ -297,7 +278,7 @@ static __hwloc_inline int
 hwloc_cpuset_from_linux_libnuma_bitmask(hwloc_topology_t topology, hwloc_cpuset_t cpuset,
 					const struct bitmask *bitmask)
 {
-  int depth = hwloc_get_type_depth(topology, HWLOC_OBJ_NUMANODE);
+  int depth = hwloc_get_type_depth(topology, HWLOC_OBJ_NODE);
 
   if (depth != HWLOC_TYPE_DEPTH_UNKNOWN) {
     hwloc_obj_t node = NULL;
@@ -325,7 +306,7 @@ static __hwloc_inline int
 hwloc_nodeset_from_linux_libnuma_bitmask(hwloc_topology_t topology, hwloc_nodeset_t nodeset,
 					 const struct bitmask *bitmask)
 {
-  int depth = hwloc_get_type_depth(topology, HWLOC_OBJ_NUMANODE);
+  int depth = hwloc_get_type_depth(topology, HWLOC_OBJ_NODE);
 
   if (depth != HWLOC_TYPE_DEPTH_UNKNOWN) {
     hwloc_obj_t node = NULL;

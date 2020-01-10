@@ -1,5 +1,5 @@
 /*
- * Copyright © 2013-2017 Inria.  All rights reserved.
+ * Copyright © 2013 Inria.  All rights reserved.
  * See COPYING in top-level directory.
  */
 
@@ -7,9 +7,8 @@
 #define HWLOC_PORT_OPENCL_CL_CL_EXT_H
 
 typedef char cl_char;
-typedef unsigned long cl_ulong;
 typedef unsigned int cl_uint;
-typedef int cl_int;
+typedef unsigned int cl_int;
 typedef unsigned int cl_device_type;
 typedef unsigned int cl_platform_info;
 typedef unsigned int cl_device_info;
@@ -34,8 +33,6 @@ cl_int clGetPlatformInfo(cl_platform_id, cl_platform_info, size_t, void *, size_
 
 #define CL_PLATFORM_NAME                            0x0902
 #define CL_DEVICE_TYPE                              0x1000
-#define CL_DEVICE_MAX_COMPUTE_UNITS                 0x1002
-#define CL_DEVICE_GLOBAL_MEM_SIZE                   0x101F
 #define CL_DEVICE_NAME                              0x102B
 #define CL_DEVICE_VENDOR                            0x102C
 #define CL_DEVICE_PLATFORM                          0x1031

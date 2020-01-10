@@ -1,5 +1,5 @@
 /*
- * Copyright © 2012-2017 Inria.  All rights reserved.
+ * Copyright © 2012 Inria.  All rights reserved.
  * See COPYING in top-level directory.
  */
 
@@ -143,7 +143,7 @@ hwloc_nvml_backend_notify_new_object(struct hwloc_backend *backend, struct hwloc
       continue;
 
     osdev = hwloc_alloc_setup_object(HWLOC_OBJ_OS_DEVICE, -1);
-    snprintf(buffer, sizeof(buffer), "nvml%u", i);
+    snprintf(buffer, sizeof(buffer), "nvml%d", i);
     osdev->name = strdup(buffer);
     osdev->depth = (unsigned) HWLOC_TYPE_DEPTH_UNKNOWN;
     osdev->attr->osdev.type = HWLOC_OBJ_OSDEV_GPU;
@@ -216,24 +216,14 @@ static struct hwloc_disc_component hwloc_nvml_disc_component = {
   NULL
 };
 
-static int
-hwloc_nvml_component_init(unsigned long flags)
-{
-  if (flags)
-    return -1;
-  if (hwloc_plugin_check_namespace("nvml", "hwloc_backend_alloc") < 0)
-    return -1;
-  return 0;
-}
-
 #ifdef HWLOC_INSIDE_PLUGIN
 HWLOC_DECLSPEC extern const struct hwloc_component hwloc_nvml_component;
 #endif
 
 const struct hwloc_component hwloc_nvml_component = {
   HWLOC_COMPONENT_ABI,
-  hwloc_nvml_component_init, NULL,
   HWLOC_COMPONENT_TYPE_DISC,
   0,
   &hwloc_nvml_disc_component
 };
+
