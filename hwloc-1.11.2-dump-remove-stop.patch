@@ -1,0 +1,34 @@
+diff -Nrup hwloc-1.11.2.orig/config/hwloc_internal.m4 hwloc-1.11.2/config/hwloc_internal.m4
+--- hwloc-1.11.2.orig/config/hwloc_internal.m4	2016-06-06 14:11:17.698625007 -0400
++++ hwloc-1.11.2/config/hwloc_internal.m4	2016-06-06 14:29:58.381286828 -0400
+@@ -315,8 +315,6 @@ EOF
+     LIBS="$hwloc_old_LIBS"
+     unset hwloc_old_LIBS
+ 
+-    AC_PATH_TOOL(RMPATH, rm)
+-
+     _HWLOC_CHECK_DIFF_U
+     _HWLOC_CHECK_DIFF_W
+ 
+diff -Nrup hwloc-1.11.2.orig/contrib/systemd/hwloc-dump-hwdata.service.in hwloc-1.11.2/contrib/systemd/hwloc-dump-hwdata.service.in
+--- hwloc-1.11.2.orig/contrib/systemd/hwloc-dump-hwdata.service.in	2016-06-06 13:45:07.593491515 -0400
++++ hwloc-1.11.2/contrib/systemd/hwloc-dump-hwdata.service.in	2016-06-06 14:29:58.382286835 -0400
+@@ -16,7 +16,6 @@ Description=Dump hardware topology and l
+ Type=oneshot
+ RemainAfterExit=yes
+ ExecStart=#SBINDIR#/hwloc-dump-hwdata -o #RUNSTATEDIR#/hwloc
+-ExecStop=#RMPATH# -rf #RUNSTATEDIR#/hwloc
+ 
+ [Install]
+ WantedBy=multi-user.target
+diff -Nrup hwloc-1.11.2.orig/contrib/systemd/Makefile.am hwloc-1.11.2/contrib/systemd/Makefile.am
+--- hwloc-1.11.2.orig/contrib/systemd/Makefile.am	2016-06-06 13:45:07.592491525 -0400
++++ hwloc-1.11.2/contrib/systemd/Makefile.am	2016-06-06 14:29:58.382286835 -0400
+@@ -14,7 +14,6 @@ hwloc-dump-hwdata.service: hwloc-dump-hw
+ 	@ $(SED) \
+ 	  -e 's@#SBINDIR#@'$(sbindir)'@g' \
+ 	  -e 's@#RUNSTATEDIR#@'$(HWLOC_runstatedir)'@g' \
+-	  -e 's@#RMPATH#@'$(RMPATH)'@g' \
+ 	  > $@ < $<
+ 
+ distclean-local:

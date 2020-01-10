@@ -1,0 +1,25 @@
+commit aeee8a0c1f603beb8a69f94ed36b69c887ab3b2f
+Author: Brice Goglin <Brice.Goglin@inria.fr>
+Date:   Wed Feb 3 07:10:48 2016 +0100
+
+    x86: fix infinite loop on VMWare when x2apic feature is reported without CPUID 0xb leaf support
+    
+    Don't use x2APIC unless supported and CPUID 0xb is supported too.
+    
+    This is likely a VMware bug since CPUID 0xb support seems
+    to be required when x2APIC feature is reported.
+    
+    Thanks to Jianjun Wen for reporting the problem and testing the patch.
+
+diff -rup hwloc-1.7.orig/src/topology-x86.c hwloc-1.7/src/topology-x86.c
+--- hwloc-1.7.orig/src/topology-x86.c	2016-05-18 16:12:38.859470713 -0400
++++ hwloc-1.7/src/topology-x86.c	2016-05-18 16:50:57.382272906 -0400
+@@ -302,7 +302,7 @@ static void look_proc(struct procinfo *i
+   /* Get package/core/thread information from cpuid 0x0b
+    * (Intel x2APIC)
+    */
+-  if (cpuid_type == intel && has_x2apic(features)) {
++  if (cpuid_type == intel && highest_cpuid >= 0x0b && has_x2apic(features)) {
+     unsigned level, apic_nextshift, apic_number, apic_type, apic_id = 0, apic_shift = 0, id;
+     for (level = 0; ; level++) {
+       ecx = level;

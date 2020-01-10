@@ -1,0 +1,212 @@
+diff -Nrup hwloc-1.11.2.orig/config/hwloc_internal.m4 hwloc-1.11.2/config/hwloc_internal.m4
+--- hwloc-1.11.2.orig/config/hwloc_internal.m4	2016-06-06 13:45:07.591491542 -0400
++++ hwloc-1.11.2/config/hwloc_internal.m4	2016-06-06 14:11:17.698625007 -0400
+@@ -1,6 +1,6 @@
+ dnl -*- Autoconf -*-
+ dnl
+-dnl Copyright © 2009-2014 Inria.  All rights reserved.
++dnl Copyright © 2009-2016 Inria.  All rights reserved.
+ dnl Copyright © 2009, 2011 Université Bordeaux
+ dnl Copyright © 2004-2005 The Trustees of Indiana University and Indiana
+ dnl                         University Research and Technology
+@@ -247,6 +247,14 @@ EOF
+ 
+     AC_REQUIRE([AC_PROG_SED])
+ 
++    # runstatedir only supported in autoconf >= 2.70 and in some backports
++    if test "x${runstatedir}" != "x"; then
++      HWLOC_runstatedir=${runstatedir}
++    else
++      HWLOC_runstatedir='${localstatedir}/run'
++    fi
++    AC_SUBST([HWLOC_runstatedir])
++
+     # Cairo support
+     hwloc_cairo_happy=no
+     if test "x$enable_cairo" != "xno"; then
+diff -Nrup hwloc-1.11.2.orig/doc/hwloc.doxy hwloc-1.11.2/doc/hwloc.doxy
+--- hwloc-1.11.2.orig/doc/hwloc.doxy	2015-12-17 05:05:59.000000000 -0500
++++ hwloc-1.11.2/doc/hwloc.doxy	2016-06-06 14:10:34.211094730 -0400
+@@ -816,6 +816,9 @@ assembling them with hwloc-assembler.
+ 
+ 
+ 
++See <tt>HWLOC_DUMPED_HWDATA_DIR</tt> in \ref envvar for details
++about the location of dumped files.
++
+ 
+ \page envvar Environment Variables
+ 
+@@ -963,7 +966,12 @@ following environment variables.
+ 
+ <dt>HWLOC_DUMPED_HWDATA_DIR=/path/to/dumped/files/</dt>
+   <dd>loads files dumped by <tt>hwloc-dump-hwdata</tt> (on Linux)
+-  from the given directory instead of <tt>/var/run/hwloc/</tt>.
++  from the given directory.
++  The default dump/load directory is configured during build based
++  on \--runstatedir, \--localstatedir, and \--prefix options.
++  It usually points to <tt>/var/run/hwloc/</tt> in Linux distribution
++  packages, but it may also point to <tt>$prefix/var/run/hwloc/</tt>
++  when manually installing and only specifying \--prefix.
+   </dd>
+ 
+ <dt>HWLOC_COMPONENTS=list,of,components</dt>
+@@ -2777,6 +2785,8 @@ The utility <tt>hwloc-dump-hwdata</tt> i
+ privileged information at boot time and making it available to
+ non-privileged users. However it only applies to Intel Knights Landing
+ Xeon Phi for now (see \ref faq_knl_dump).
++See also <tt>HWLOC_DUMPED_HWDATA_DIR</tt> in \ref envvar for details
++about the location of dumped files.
+ 
+ 
+ \section faq_onedim hwloc only has a one-dimensional view of the architecture, it ignores distances
+@@ -3149,6 +3159,9 @@ hwloc-dump-hwdata requires <tt>dmi-sysfs
+ 
+ The utility is currently unneeded on non-KNL platforms.
+ 
++See <tt>HWLOC_DUMPED_HWDATA_DIR</tt> in \ref envvar for details
++about the location of dumped files.
++
+ 
+ \section faq_phi How do I build for Intel Xeon Phi coprocessor?
+ 
+diff -Nrup hwloc-1.11.2.orig/NEWS hwloc-1.11.2/NEWS
+--- hwloc-1.11.2.orig/NEWS	2016-06-06 13:45:54.947068832 -0400
++++ hwloc-1.11.2/NEWS	2016-06-06 14:11:52.160045046 -0400
+@@ -60,6 +60,8 @@ Version 1.11.2
+ * Add systemd service template contrib/systemd/hwloc-dump-hwdata.service
+   for launching hwloc-dump-hwdata at boot on Linux.
+   Thanks to Grzegorz Andrejczuk.
++* Make the hwloc-dump-hwdata dump directory configurable through configure
++  options such as --runstatedir or --localstatedir.
+ 
+ 
+ Version 1.11.1
+diff -Nrup hwloc-1.11.2.orig/src/Makefile.am hwloc-1.11.2/src/Makefile.am
+--- hwloc-1.11.2.orig/src/Makefile.am	2015-10-06 13:06:45.000000000 -0400
++++ hwloc-1.11.2/src/Makefile.am	2016-06-06 14:10:34.212094742 -0400
+@@ -1,4 +1,4 @@
+-# Copyright © 2009-2014 Inria.  All rights reserved.
++# Copyright © 2009-2016 Inria.  All rights reserved.
+ # Copyright © 2009-2012 Université Bordeaux
+ # Copyright © 2009-2014 Cisco Systems, Inc.  All rights reserved.
+ # Copyright © 2011-2012 Oracle and/or its affiliates.  All rights reserved.
+@@ -22,7 +22,8 @@ endif
+ pluginsdir = @HWLOC_PLUGINS_DIR@
+ plugins_LTLIBRARIES =
+ plugins_ldflags = -module -avoid-version -lltdl
+-AM_CPPFLAGS += -DHWLOC_PLUGINS_PATH=\"$(HWLOC_PLUGINS_PATH)\"
++# Beware that files are not rebuilt automatically when reconfiguring with different paths in these flags.
++AM_CPPFLAGS += -DHWLOC_PLUGINS_PATH=\"$(HWLOC_PLUGINS_PATH)\" -DRUNSTATEDIR=\"$(HWLOC_runstatedir)\"
+ 
+ # Sources and ldflags
+ 
+diff -Nrup hwloc-1.11.2.orig/src/topology-linux.c hwloc-1.11.2/src/topology-linux.c
+--- hwloc-1.11.2.orig/src/topology-linux.c	2015-12-10 07:09:45.000000000 -0500
++++ hwloc-1.11.2/src/topology-linux.c	2016-06-06 14:10:34.214094766 -0400
+@@ -5237,7 +5237,7 @@ hwloc_linux_component_instantiate(struct
+ 
+   data->dumped_hwdata_dirname = getenv("HWLOC_DUMPED_HWDATA_DIR");
+   if (!data->dumped_hwdata_dirname)
+-    data->dumped_hwdata_dirname = "/var/run/hwloc/";
++    data->dumped_hwdata_dirname = RUNSTATEDIR "/hwloc/";
+ 
+   data->deprecated_classlinks_model = -2; /* never tried */
+   data->mic_need_directlookup = -1; /* not initialized */
+diff -Nrup hwloc-1.11.2.orig/utils/hwloc/hwloc-dump-hwdata.1in hwloc-1.11.2/utils/hwloc/hwloc-dump-hwdata.1in
+--- hwloc-1.11.2.orig/utils/hwloc/hwloc-dump-hwdata.1in	2015-12-10 07:09:45.000000000 -0500
++++ hwloc-1.11.2/utils/hwloc/hwloc-dump-hwdata.1in	2016-06-06 14:10:34.216094790 -0400
+@@ -1,5 +1,5 @@
+ .\" -*- nroff -*-
+-.\" Copyright © 2015 Inria.  All rights reserved.
++.\" Copyright © 2015-2016 Inria.  All rights reserved.
+ .\" See COPYING in top-level directory.
+ .TH HWLOC-DUMP-HWDATA "1" "#HWLOC_DATE#" "#PACKAGE_VERSION#" "#PACKAGE_NAME#"
+ .SH NAME
+@@ -21,7 +21,11 @@ hwloc-dump-hwdata \- Dump topology and l
+ .TP 10
+ \fB\-o <dir>\fR
+ save output files to directory <dir> instead of the default
+-\fI/var/run/hwloc/\fR.
++\fI#RUNSTATEDIR#/hwloc/\fR that was specified at configure time.
++
++You may want to set the HWLOC_DUMPED_HWDATA_DIR environment variable
++as well so that the hwloc library looks for dumped files in that same
++directory.
+ .
+ .\" **************************
+ .\"    Description Section
+@@ -54,11 +58,6 @@ gathered from specific SMBIOS entries su
+ \fI/sys/firmware/dmi/entries/160-*\fR,
+ and saved in file \fIknl_memoryside_cache\fR.
+ .
+-.PP
+-If the output directory is changed, you may want to set the
+-HWLOC_DUMPED_HWDATA_DIR environment variable accordingly so that
+-the hwloc library finds the dumped files.
+-.
+ .\" **************************
+ .\"    See also section
+ .\" **************************
+diff -Nrup hwloc-1.11.2.orig/utils/hwloc/hwloc-dump-hwdata.c hwloc-1.11.2/utils/hwloc/hwloc-dump-hwdata.c
+--- hwloc-1.11.2.orig/utils/hwloc/hwloc-dump-hwdata.c	2016-06-06 14:08:17.576429196 -0400
++++ hwloc-1.11.2/utils/hwloc/hwloc-dump-hwdata.c	2016-06-06 14:10:34.216094790 -0400
+@@ -23,7 +23,7 @@ static void usage(const char *name, FILE
+ {
+     fprintf (where, "Usage: %s [ options ] ...\n", name);
+     fprintf (where, "Options:\n");
+-    fprintf (where, "  -o <dir>      Output files to directory <dir> instead of /var/run/hwloc/\n");
++    fprintf (where, "  -o <dir>      Output files to directory <dir> instead of " DEFAULT_DUMP_DIR "\n");
+ }
+ 
+ int main(int argc, char *argv[])
+diff -Nrup hwloc-1.11.2.orig/utils/hwloc/hwloc-gather-topology.in hwloc-1.11.2/utils/hwloc/hwloc-gather-topology.in
+--- hwloc-1.11.2.orig/utils/hwloc/hwloc-gather-topology.in	2015-12-10 07:09:45.000000000 -0500
++++ hwloc-1.11.2/utils/hwloc/hwloc-gather-topology.in	2016-06-06 14:10:34.216094790 -0400
+@@ -3,7 +3,7 @@
+ 
+ #
+ # Copyright © 2009 CNRS
+-# Copyright © 2009-2015 Inria.  All rights reserved.
++# Copyright © 2009-2016 Inria.  All rights reserved.
+ # Copyright © 2009-2012 Université Bordeaux
+ # See COPYING in top-level directory.
+ #
+@@ -12,6 +12,8 @@ HWLOC_top_builddir="@HWLOC_top_builddir@
+ prefix="@prefix@"
+ exec_prefix="@exec_prefix@"
+ bindir="@bindir@"
++localstatedir="@localstatedir@"
++runstatedir="@HWLOC_runstatedir@"
+ # this will be changed into $bindir/lstopo during make install
+ lstopo="$HWLOC_top_builddir/utils/lstopo/lstopo-no-graphics"
+ 
+@@ -138,7 +140,7 @@ cat << EOF | while read -r path ; do sav
+ EOF
+ 
+ if test "x$HWLOC_DUMPED_HWDATA_DIR" = x; then
+-  savedir "$destdir/$basename" /var/run/hwloc/
++  savedir "$destdir/$basename" "$runstatedir"/hwloc/
+ else
+   savedir "$destdir/$basename" "$HWLOC_DUMPED_HWDATA_DIR"
+ fi
+diff -Nrup hwloc-1.11.2.orig/utils/hwloc/Makefile.am hwloc-1.11.2/utils/hwloc/Makefile.am
+--- hwloc-1.11.2.orig/utils/hwloc/Makefile.am	2016-06-06 14:08:17.575429209 -0400
++++ hwloc-1.11.2/utils/hwloc/Makefile.am	2016-06-06 14:10:34.215094778 -0400
+@@ -45,7 +45,7 @@ endif HWLOC_HAVE_LINUX
+ hwloc_dump_hwdata_SOURCES = \
+ 	hwloc-dump-hwdata.c \
+ 	hwloc-dump-hwdata-knl.c
+-hwloc_dump_hwdata_CPPFLAGS = $(AM_CPPFLAGS) -DRUNSTATEDIR=\"@runstatedir@\"
++hwloc_dump_hwdata_CPPFLAGS = $(AM_CPPFLAGS) -DRUNSTATEDIR=\"$(HWLOC_runstatedir)\"
+ 
+ hwloc_calc_SOURCES = \
+         hwloc-calc.h \
+@@ -123,6 +123,7 @@ endif HWLOC_HAVE_LINUX
+ 	@ $(SED) -e 's/#PACKAGE_NAME#/@PACKAGE_NAME@/g' \
+ 	  -e 's/#PACKAGE_VERSION#/@PACKAGE_VERSION@/g' \
+ 	  -e 's/#HWLOC_DATE#/@HWLOC_RELEASE_DATE@/g' \
++	  -e 's@#RUNSTATEDIR#@'$(HWLOC_runstatedir)'@g' \
+ 	  > $@ < $<
+ 
+ .3in.3:
