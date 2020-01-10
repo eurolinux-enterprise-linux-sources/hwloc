@@ -1,7 +1,7 @@
 Summary:   Portable Hardware Locality - portable abstraction of hierarchical architectures
 Name:      hwloc
 Version:   1.11.2
-Release:   1%{?dist}
+Release:   2%{?dist}
 License:   BSD
 Group:     Applications/System
 URL:       http://www.open-mpi.org/projects/hwloc/
@@ -12,6 +12,7 @@ Patch2:    hwloc-1.11.2-dump-remove-hardwire.patch
 Patch3:    hwloc-1.11.2-dump-cleanups.patch
 Patch4:    hwloc-1.11.2-dump-remove-stop.patch
 Patch5:    hwloc-1.11.2-hwloc-dump-x86-only.patch
+Patch6:    hwloc-1.11.5-Add-Knights-Mill-KNM-CPUID.patch
 
 Requires:  %{name}-libs = %{version}-%{release} 
 
@@ -81,6 +82,7 @@ Requires:  %{name}-plugins = %{version}-%{release}
 %patch3 -p1
 %patch4 -p1
 %patch5 -p1
+%patch6 -p1
 
 %build
 autoreconf --force --install
@@ -165,6 +167,10 @@ mkdir -p %{buildroot}%{_unitdir}
 
 
 %changelog
+* Fri Mar 24 2017 Don Zickus <dzickus@redhat.com> - 1.11.2-2
+- Add support for Knights Mill
+  Resolves: rhbz1381313
+
 * Fri Jul  1 2016 Don Zickus <dzickus@redhat.com> - 1.11.2-1
 - Rebase to 1.11.2
 - Xeon Phi dump support
